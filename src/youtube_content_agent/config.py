@@ -1,0 +1,19 @@
+from typing import Literal
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    editorial_provider: Literal["mimo", "openai"] = "mimo"
+    mimo_api_key: str | None = None
+    mimo_model: str = "mimo-v2.5"
+    mimo_base_url: str = "https://api.xiaomimimo.com/v1"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-5-mini"
+    youtube_api_key: str | None = None
+    yt_dlp_bin: str = "yt-dlp"
+    ffmpeg_bin: str = "ffmpeg"
+    ffprobe_bin: str = "ffprobe"
+    yt_dlp_cookies_from_browser: str | None = None

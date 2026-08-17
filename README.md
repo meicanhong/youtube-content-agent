@@ -1,0 +1,161 @@
+# YouTube 海外访谈内容自动化 Agent
+
+输入一条带英文字幕的 YouTube Podcast / Interview URL，输出一至多个可人工审核的中文社交媒体轮播图 Content Package。当前 MVP 聚焦最有价值的加工链路，不包含 Trend Agent、自动发布、Dashboard 或数据库。
+
+## 当前能力
+
+```text
+YouTube URL
+  -> yt-dlp 元数据
+  -> YouTube 人工/自动英文字幕（带时间戳）
+  -> OpenAI 结构化 Editorial + Caption
+  -> Transcript 强制回源与时间覆盖校验
+  -> 按选题下载连续视频片段
+  -> 每个时间戳附近三帧质量择优
+  -> 1080x1350 原人物画面 + 中文字幕
+  -> source.json / content.json / caption.md / metadata.json
+```
+
+模型只负责提出选题、时间段、Slide 时间戳和中文编辑结果。`original_text` 不接受模型填写，而是由系统按时间戳从 Transcript 反查生成，因此每个 Topic、Slide、截图都能回溯。
+
+## 环境要求
+
+- Python 3.12+
+- `uv`
+- `yt-dlp`
+- `ffmpeg` / `ffprobe`
+- 一个可用的 MiMo API Key（默认 Editorial/Caption）
+
+macOS 上建议使用带常见编解码器的 FFmpeg。图片文字由 Pillow 和系统中文字体渲染，不依赖 FFmpeg 的字幕滤镜。
+
+## 安装
+
+```bash
+uv sync --extra dev
+cp .env.example .env
+```
+
+默认使用小米 MiMo V2.5。在 `.env` 填入：
+
+```dotenv
+EDITORIAL_PROVIDER=mimo
+MIMO_API_KEY=...
+MIMO_MODEL=mimo-v2.5
+MIMO_BASE_URL=https://api.xiaomimimo.com/v1
+```
+
+Editorial 请求会显式设置 `thinking.type=disabled`。这是因为该任务需要稳定输出可校验 JSON，
+不需要让内部推理占用大量输出 Token；最终结果仍会经过 Pydantic 和 Transcript 双重校验。
+如果首次结果违反时间线合同，系统最多执行一次有边界的纠错：只把该候选对应、不超过
+10 分钟的 Transcript 摘录交回 MiMo，要求重新选择 30–180 秒片段并重写全部内容；第二次
+仍不合格就明确失败，不会无限付费重试。
+
+通过时间合同后还会执行一次来源限定核查。核查器只能重写中文选题、Slide 和 Caption，
+不能改变 Source Segment、时间戳或英文锚点；任何原文未明确支持的日期、身份、影响范围或
+背景事实都必须删除，来源身份一旦被修改会直接失败。
+
+如需切回 OpenAI，可设置 `EDITORIAL_PROVIDER=openai`，并配置 `OPENAI_API_KEY` 与
+`OPENAI_MODEL`。
+
+URL-to-package MVP 不需要 `YOUTUBE_API_KEY`；该 Key 留给下一阶段 Trend Agent 使用。
+
+## 正式运行
+
+```bash
+uv run youtube-content-agent \
+  'https://www.youtube.com/watch?v=VIDEO_ID' \
+  --output-dir outputs/my-run \
+  --work-dir work/youtube-content-agent \
+  --max-topics 3
+```
+
+如果 YouTube 对匿名访问触发验证，可在 `.env` 显式设置浏览器名，例如：
+
+```dotenv
+YT_DLP_COOKIES_FROM_BROWSER=chrome
+```
+
+系统不会导出或记录 Cookie。
+
+## 无模型 API Key 的明确演示模式
+
+fixture 不会被隐式启用，必须主动传入：
+
+```bash
+uv run youtube-content-agent \
+  'https://www.youtube.com/watch?v=VIDEO_ID' \
+  --editorial-fixture fixtures/demo_editorial.json \
+  --output-dir outputs/demo \
+  --max-topics 1
+```
+
+输出 `metadata.json` 会把 provider 标成 `fixture:...`，避免把 Mock 当成生产模型结果。fixture 的时间范围和 Slide 时间戳仍必须通过真实 Transcript 回源校验。
+
+## Content Package
+
+```text
+outputs/my-run/
+├── manifest.json
+├── transcript.json
+└── 01-topic-slug/
+    ├── source.json
+    ├── content.json
+    ├── caption.md
+    ├── metadata.json
+    ├── storyboard.jpg
+    └── images/
+        ├── 01.jpg
+        ├── 02.jpg
+        └── ...
+```
+
+- `source.json`：视频身份、连续 Source Segment、该范围内完整原文和原始字幕段。
+- `content.json`：中文选题、Hook、Caption、6-10 个 Slide；每个 Slide 同时保存时间戳、附近英文原文、中文和图片路径。
+- `metadata.json`：字幕来源、Editorial provider、图片数、是否完整。
+- `storyboard.jpg`：默认主成品，宽度 1080；顶部大人物画面，下方按时间顺序堆叠其余分镜条和通栏黑色字幕带。每个字幕条固定同一字号且只显示一行，长句会按标点和实际像素宽度拆成多个连续字幕条，行尾标点会自动移除；内容较多时画布会自动增高，避免缩小字体。
+- `manifest.json`：整次运行的视频与 Package 清单。
+
+## Transcript 策略
+
+主路径使用 YouTube 已有的人工英文字幕；没有时使用 YouTube 自动英文字幕。系统只请求精确的 `en` 轨道，优先下载 `json3`，避免自动字幕 VTT 的滚动文本重复，并保留秒级开始/结束时间。成功结果会缓存到 `work/youtube-content-agent/<video_id>/`，避免长访谈重复请求字幕，同时不污染用户交付目录。
+
+无字幕时默认明确失败，不会悄悄换供应商。完整音频 ASR 下载链尚未纳入本 MVP；后续接入时应显式启用，并使用本机 MLX Whisper Large V3 Turbo，不做 Qwen 或云端的隐式降级。
+
+## Editorial 与 Timestamp 约束
+
+- 选题必须对应 20-240 秒连续片段。
+- 每个选题 6-10 个 Slide。
+- Slide 时间戳必须递增且位于 Source Segment 内。
+- 每张 Slide 必须携带一段逐字复制的英文 `source_quote`；系统在 Transcript 中找到该
+  锚点后，将时间戳纠正到真实字幕段起点，并只保存 Transcript 派生的 `original_text`。
+- Source Segment 必须被 Transcript 实际覆盖。
+- 每张 Slide 的英文原文由时间戳反查，时间差超过 3 秒直接失败。
+- 中文允许自然压缩，但 Prompt 明确禁止增加原文没有的事实。
+
+## Screenshot 策略
+
+每个选题优先只下载所需连续片段（前后各留 3 秒），避免下载数小时完整视频。若 YouTube 的远程媒体地址拒绝 FFmpeg seek，系统会明确记录 fallback：用 yt-dlp 原生方式下载一次 480p 以内源视频到 `work/` 缓存，随后在本地精确裁切；同一视频的多个选题复用该缓存。每个 Slide 在目标时间附近尝试 `-0.35s / 0s / +0.35s` 三帧，以曝光、对比度和清晰度做轻量评分，选出较自然的一帧。系统同时输出两种视觉：`images/` 保留独立 4:5 图片用于追溯或轮播，`storyboard.jpg` 则把全部分镜合成为一张宽度 1080 的连续故事长图，作为默认发布成品。字幕统一字号、逐条单行显示；若固定字号下内容超过 1440 高度，成品会自动增高而不是缩小文字。
+
+第一版尚未做人脸检测、说话人识别、切镜头检测或人物安全区重排，这些属于下一阶段视觉质量优化。
+
+## 测试与检查
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy src
+```
+
+端到端测试会在本地临时生成一段视频，完整验证：Transcript -> Editorial fixture -> 强制回源 -> 视频截帧 -> 中文字幕图片 -> 四类 Content Package 文件。
+
+## 当前边界
+
+- 没有 MiMo/OpenAI Key 时只能用显式 fixture 验证全链路，不能评价真实选题质量。
+- 部分 YouTube 视频可能因地区、年龄、登录或 Bot 验证无法匿名下载。
+- 超长 Transcript 目前一次提交给模型；生产化前应增加章节化候选召回与二阶段筛选。
+- 当前截图评分不理解人物身份，仍需要人工检查构图、表情和字幕是否挡脸。
+- 中文忠实度目前依靠 Prompt 与人工终审；后续应增加独立的双语 entailment/引用核查器。
+
+## 下一阶段
+
+先用 10-20 条真实长访谈建立编辑验收集，量化“至少一个可轻改发布”的命中率，再优化 Editorial 召回和视觉选帧。内容链稳定后，再接 YouTube Data API v3 的 Monthly Top / Trending Top，而不是提前建设榜单或 Dashboard。

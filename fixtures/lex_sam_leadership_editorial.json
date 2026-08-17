@@ -1,0 +1,57 @@
+{
+  "topics": [
+    {
+      "topic": "真正的领导力，藏在无聊的星期二",
+      "source_start": 1036.17,
+      "source_end": 1077.33,
+      "slides": [
+        {
+          "timestamp": 1038.75,
+          "source_quote": "in a lot of chaos",
+          "zh_text": "人们常在危机中看见领导者"
+        },
+        {
+          "timestamp": 1043.01,
+          "source_quote": "people often see leaders",
+          "zh_text": "但我更看重的不是高光时刻"
+        },
+        {
+          "timestamp": 1049.3,
+          "source_quote": "in leaders is how people act on a boring Tuesday",
+          "zh_text": "而是一个无聊的星期二"
+        },
+        {
+          "timestamp": 1055.78,
+          "source_quote": "in just sort of the normal drudgery of the day-to-day",
+          "zh_text": "在日复一日的普通工作里"
+        },
+        {
+          "timestamp": 1061.4,
+          "source_quote": "how someone shows up in a meeting",
+          "zh_text": "他如何出现在每一次会议中"
+        },
+        {
+          "timestamp": 1063.23,
+          "source_quote": "the quality of the decisions they make",
+          "zh_text": "又做出了什么质量的决定"
+        },
+        {
+          "timestamp": 1068.03,
+          "source_quote": "most of the work is done on a day by day",
+          "zh_text": "因为大多数工作就是这样完成的"
+        },
+        {
+          "timestamp": 1073.92,
+          "source_quote": "just be present and make great decisions",
+          "zh_text": "每天在场，然后持续做出好决定"
+        }
+      ],
+      "caption": {
+        "title": "真正的领导力，藏在无聊的星期二",
+        "hook": "判断一个领导者，为什么不能只看他如何处理危机？",
+        "body": "危机时刻最容易被看见，也最容易制造英雄叙事。\n\n但 Sam Altman 评价一位领导者时，更看重的却是一个普通星期二的早上：没有聚光灯，没有戏剧冲突，只有日常会议和一连串看似不起眼的决定。\n\n真正拉开差距的，往往不是偶尔一次力挽狂澜，而是一个人在重复、琐碎甚至无聊的工作里，能否持续在场，持续做出高质量决定。\n\n领导力不是危机来临时才突然出现的能力。它早就写在每一个普通工作日里。"
+      },
+      "quality_score": 0.92
+    }
+  ]
+}

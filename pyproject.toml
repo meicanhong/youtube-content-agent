@@ -1,0 +1,48 @@
+[project]
+name = "youtube-content-agent"
+version = "0.1.0"
+description = "Turn a YouTube interview into traceable Chinese social-media carousel packages."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "openai>=1.99.0",
+  "pillow>=11.0.0",
+  "pydantic>=2.11.0",
+  "pydantic-settings>=2.10.0",
+  "typer>=0.16.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.17.0",
+  "pytest>=8.4.0",
+  "pytest-cov>=6.2.0",
+  "ruff>=0.12.0",
+]
+
+[project.scripts]
+youtube-content-agent = "youtube_content_agent.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/youtube_content_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
