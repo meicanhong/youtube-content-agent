@@ -31,7 +31,7 @@ YouTube URL
 - `uv`
 - `yt-dlp`
 - `ffmpeg` / `ffprobe`
-- 一个可用的 MiMo API Key（默认 Editorial/Caption）
+- 一个可用的 OpenAI-compatible API Key（默认 GPT-5.6 Luna Editorial/Caption）
 
 macOS 上建议使用带常见编解码器的 FFmpeg。图片文字由 Pillow 和系统中文字体渲染，不依赖 FFmpeg 的字幕滤镜。
 
@@ -42,15 +42,16 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-默认使用小米 MiMo V2.5。在 `.env` 填入：
+默认使用 OpenAI-compatible GPT-5.6 Luna。在 `.env.local` 填入：
 
 ```dotenv
-EDITORIAL_PROVIDER=mimo
-MIMO_API_KEY=...
-MIMO_MODEL=mimo-v2.5
-MIMO_BASE_URL=https://api.xiaomimimo.com/v1
+EDITORIAL_PROVIDER=openai
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5.6-luna
+OPENAI_BASE_URL=http://47.84.236.4:8080/v1
 ```
 
+`.env.local` 与 `.env` 都被 Git 忽略，本地配置优先级更高，密钥不会进入公开仓库。
 Editorial 请求会显式设置 `thinking.type=disabled`。这是因为该任务需要稳定输出可校验 JSON，
 不需要让内部推理占用大量输出 Token；最终结果仍会经过 Pydantic 和 Transcript 双重校验。
 如果首次结果违反时间线合同，系统最多执行一次有边界的纠错：只把该候选对应、不超过
@@ -66,8 +67,8 @@ Editorial 请求会显式设置 `thinking.type=disabled`。这是因为该任务
 才通过；否则最多执行两轮整组重写和复审。重写可以在同一个 Source Segment 内重新选择
 更合适的英文锚点，但不能扩大来源区间，新引用仍必须逐字回源并再次经过事实核查。
 
-如需切回 OpenAI，可设置 `EDITORIAL_PROVIDER=openai`，并配置 `OPENAI_API_KEY` 与
-`OPENAI_MODEL`。
+如需切回小米 MiMo，可设置 `EDITORIAL_PROVIDER=mimo`，并配置 `MIMO_API_KEY`、
+`MIMO_MODEL` 与 `MIMO_BASE_URL`。
 
 手工 URL-to-package 不需要 `YOUTUBE_API_KEY`。自动发现命令优先使用 YouTube Data API v3；
 这是速度和稳定性最好的方式，可在 Google Cloud 启用后把 Key 写入 `.env`：
@@ -188,6 +189,22 @@ uv run youtube-content-agent \
 ```
 
 输出 `metadata.json` 会把 provider 标成 `fixture:...`，避免把 Mock 当成生产模型结果。fixture 的时间范围和 Slide 时间戳仍必须通过真实 Transcript 回源校验。
+
+## 只调整图片样式，不调用 LLM
+
+完整生成一次后，Package 已保存中文内容、时间戳和本地视频片段。以后只修改字体、遮罩、
+画布比例、字幕清洗或分页样式时，直接运行：
+
+```bash
+uv run youtube-content-rerender \
+  outputs/reruns/seth-godin-multipage-v10 \
+  --work-dir work/youtube-content-agent
+```
+
+参数既可以是包含 `manifest.json` 的整次输出目录，也可以是单个 Content Package 目录。
+该命令只读取已有 `source.json`、`content.json`、`metadata.json` 和本地视频缓存；代码路径
+不会创建 Editorial provider，也不会读取或调用任何 LLM API。新图片全部成功后才会替换旧图；
+如果缺少视频缓存则明确失败，不会隐式重新跑 Editorial。
 
 ## Content Package
 

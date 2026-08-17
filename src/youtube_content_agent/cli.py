@@ -48,7 +48,11 @@ def run(
                 settings.mimo_base_url,
             )
         else:
-            editorial = OpenAIEditorialProvider(settings.openai_api_key, settings.openai_model)
+            editorial = OpenAIEditorialProvider(
+                settings.openai_api_key,
+                settings.openai_model,
+                settings.openai_base_url,
+            )
         pipeline = ContentPipeline(
             youtube=YtDlpGateway(settings),
             editorial=editorial,

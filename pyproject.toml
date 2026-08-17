@@ -22,6 +22,7 @@ dev = [
 
 [project.scripts]
 youtube-content-agent = "youtube_content_agent.cli:app"
+youtube-content-rerender = "youtube_content_agent.rerender_cli:app"
 youtube-content-trend = "youtube_content_agent.trend_cli:app"
 
 [build-system]

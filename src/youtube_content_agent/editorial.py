@@ -47,61 +47,32 @@ Do not use Markdown fences. Do not add commentary before or after the JSON.
 JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
-class OpenAIEditorialProvider:
-    def __init__(self, api_key: str | None, model: str) -> None:
-        if not api_key:
-            raise ConfigurationError(
-                "生产 Editorial 需要 OPENAI_API_KEY；无 Key 时请显式传 --editorial-fixture。"
-            )
-        self.client = OpenAI(api_key=api_key)
-        self.model = model
-
-    @property
-    def name(self) -> str:
-        return f"openai:{self.model}"
-
-    def create_topics(
-        self, metadata: VideoMetadata, transcript: Transcript, max_topics: int
-    ) -> EditorialResponse:
-        transcript_text = "\n".join(
-            f"[{segment.start:.2f}-{segment.end:.2f}] {segment.text}"
-            for segment in transcript.segments
-        )
-        user_prompt = (
-            f"Video: {metadata.title}\nChannel: {metadata.channel}\n"
-            f"{_topic_count_instruction(max_topics)}\n\n"
-            f"Timestamped transcript:\n{transcript_text}"
-        )
-        try:
-            response = self.client.responses.parse(
-                model=self.model,
-                input=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                text_format=EditorialResponse,
-            )
-        except Exception as exc:
-            raise ExternalToolError(f"OpenAI Editorial 调用失败：{type(exc).__name__}") from exc
-        if response.output_parsed is None:
-            raise ExternalToolError("OpenAI Editorial 未返回可解析的结构化结果")
-        return response.output_parsed
-
-
 class MimoEditorialProvider:
-    """MiMo V2.5 adapter using its official OpenAI-compatible Chat Completions API."""
+    """Source-first Editorial workflow over an OpenAI-compatible Chat Completions API."""
 
-    def __init__(self, api_key: str | None, model: str, base_url: str) -> None:
+    def __init__(
+        self,
+        api_key: str | None,
+        model: str,
+        base_url: str,
+        *,
+        provider_id: str = "mimo",
+        display_name: str = "MiMo",
+        api_key_name: str = "MIMO_API_KEY",
+    ) -> None:
         if not api_key:
             raise ConfigurationError(
-                "MiMo Editorial 需要 MIMO_API_KEY；请写入本地 .env，或显式传 --editorial-fixture。"
+                f"{display_name} Editorial 需要 {api_key_name}；请写入本地环境文件，"
+                "或显式传 --editorial-fixture。"
             )
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
+        self.provider_id = provider_id
+        self.display_name = display_name
 
     @property
     def name(self) -> str:
-        return f"mimo:{self.model}"
+        return f"{self.provider_id}:{self.model}"
 
     def create_topics(
         self, metadata: VideoMetadata, transcript: Transcript, max_topics: int
@@ -115,22 +86,24 @@ class MimoEditorialProvider:
         )
         content = self._complete(user_prompt)
         try:
-            draft = _parse_editorial_json(content, "MiMo")
+            draft = _parse_editorial_json(content, self.display_name)
         except ExternalToolError as initial_error:
             repair_prompt = _build_repair_prompt(content, transcript, schema)
             if repair_prompt is None:
                 raise initial_error
             logger.warning(
-                "MiMo editorial validation failed; attempting one bounded repair",
+                f"{self.display_name} editorial validation failed; attempting one bounded repair",
                 extra={
                     "event": "external_retry",
                     "operation": "editorial_repair",
-                    "provider": "mimo",
+                    "provider": self.provider_id,
                     "resource_id": metadata.video_id,
                 },
             )
             repaired_content = self._complete(repair_prompt)
-            draft = _parse_editorial_json(repaired_content, "MiMo repair")
+            draft = _parse_editorial_json(
+                repaired_content, f"{self.display_name} repair"
+            )
         if not draft.topics:
             return draft
         return self.revise_topics(draft, transcript, metadata.video_id, schema)
@@ -171,18 +144,21 @@ class MimoEditorialProvider:
                 extra_body={"thinking": {"type": "disabled"}},
             )
         except Exception as exc:
-            raise ExternalToolError(f"MiMo Editorial 调用失败：{type(exc).__name__}") from exc
+            raise ExternalToolError(
+                f"{self.display_name} Editorial 调用失败：{type(exc).__name__}"
+            ) from exc
         content = response.choices[0].message.content if response.choices else None
         if not content:
-            raise ExternalToolError("MiMo Editorial 返回了空内容")
+            raise ExternalToolError(f"{self.display_name} Editorial 返回了空内容")
         return content
 
     def _verify_source_bound_content(
         self, draft: EditorialResponse, transcript: Transcript, schema: str
     ) -> EditorialResponse:
         prompt = _build_verification_prompt(draft, transcript, schema)
-        verified = _parse_editorial_json(self._complete(prompt), "MiMo verification")
-        _assert_source_identity(draft, verified, "MiMo source verification")
+        stage = f"{self.display_name} source verification"
+        verified = _parse_editorial_json(self._complete(prompt), stage)
+        _assert_source_identity(draft, verified, stage)
         return verified
 
     def _repair_ungrounded_draft(
@@ -197,18 +173,20 @@ class MimoEditorialProvider:
             return draft
         except GroundingError:
             logger.warning(
-                "MiMo source quotes failed grounding; attempting one bounded repair",
+                f"{self.display_name} source quotes failed grounding; "
+                "attempting one bounded repair",
                 extra={
                     "event": "external_retry",
                     "operation": "editorial_grounding_repair",
-                    "provider": "mimo",
+                    "provider": self.provider_id,
                     "resource_id": video_id,
                 },
             )
         prompt = _build_grounding_repair_prompt(draft, transcript, schema)
-        repaired = _parse_editorial_json(self._complete(prompt), "MiMo grounding repair")
+        stage = f"{self.display_name} grounding repair"
+        repaired = _parse_editorial_json(self._complete(prompt), stage)
         if len(repaired.topics) != len(draft.topics):
-            raise ExternalToolError("MiMo grounding repair 改变了 Topic 数量")
+            raise ExternalToolError(f"{stage} 改变了 Topic 数量")
         _assert_topics_grounded(repaired, transcript)
         return repaired
 
@@ -226,11 +204,11 @@ class MimoEditorialProvider:
             if _audit_passed(audit, len(current.topics)) and not code_risks:
                 if current != draft:
                     logger.info(
-                        "MiMo story coherence edit completed",
+                        f"{self.display_name} story coherence edit completed",
                         extra={
                             "event": "story_coherence_complete",
                             "operation": "editorial_story_edit",
-                            "provider": "mimo",
+                            "provider": self.provider_id,
                             "resource_id": video_id,
                             "topic_count": len(current.topics),
                             "retry_count": attempt - 1,
@@ -240,14 +218,17 @@ class MimoEditorialProvider:
             prompt = _build_story_coherence_prompt(
                 current, transcript, schema, audit, code_risks
             )
-            edited = _parse_editorial_json(self._complete(prompt), "MiMo story coherence")
-            _assert_topic_scope_identity(draft, edited, "MiMo story coherence")
+            stage = f"{self.display_name} story coherence"
+            edited = _parse_editorial_json(self._complete(prompt), stage)
+            _assert_topic_scope_identity(draft, edited, stage)
             _assert_topics_grounded(edited, transcript)
             current = self._verify_source_bound_content(edited, transcript, schema)
             audit = self._audit_story_coherence(current, transcript)
         if _audit_passed(audit, len(current.topics)) and not _detect_hard_coherence_risks(current):
             return current
-        raise ExternalToolError("MiMo story coherence 两轮重写后仍未通过连贯性复审")
+        raise ExternalToolError(
+            f"{self.display_name} story coherence 两轮重写后仍未通过连贯性复审"
+        )
 
     def _audit_story_coherence(
         self, draft: EditorialResponse, transcript: Transcript
@@ -255,13 +236,31 @@ class MimoEditorialProvider:
         content = self._complete(_build_story_coherence_audit_prompt(draft, transcript))
         try:
             audit = StoryCoherenceAudit.model_validate_json(
-                _clean_json_content(content, "MiMo story audit")
+                _clean_json_content(content, f"{self.display_name} story audit")
             )
         except ValidationError as exc:
-            raise ExternalToolError("MiMo story audit JSON 未通过数据模型校验") from exc
+            raise ExternalToolError(
+                f"{self.display_name} story audit JSON 未通过数据模型校验"
+            ) from exc
         if len(audit.topics) != len(draft.topics):
-            raise ExternalToolError("MiMo story audit 返回的 Topic 数量不匹配")
+            raise ExternalToolError(
+                f"{self.display_name} story audit 返回的 Topic 数量不匹配"
+            )
         return audit
+
+
+class OpenAIEditorialProvider(MimoEditorialProvider):
+    """OpenAI-compatible provider using the same verified Editorial workflow."""
+
+    def __init__(self, api_key: str | None, model: str, base_url: str) -> None:
+        super().__init__(
+            api_key,
+            model,
+            base_url,
+            provider_id="openai",
+            display_name="OpenAI-compatible",
+            api_key_name="OPENAI_API_KEY",
+        )
 
 
 def _format_transcript(transcript: Transcript) -> str:

@@ -8,6 +8,7 @@ import pytest
 
 from youtube_content_agent.editorial import (
     MimoEditorialProvider,
+    OpenAIEditorialProvider,
     _audit_passed,
     _detect_hard_coherence_risks,
     _parse_editorial_json,
@@ -324,6 +325,38 @@ def test_mimo_rewrites_failed_audit_and_reviews_again(monkeypatch) -> None:  # t
     rewrite_messages = calls[3]["messages"]
     assert isinstance(rewrite_messages, list)
     assert "Fix every supplied audit issue" in rewrite_messages[1]["content"]
+
+
+def test_openai_compatible_provider_reuses_verified_chat_workflow(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    responses = iter((VALID_RESPONSE, VALID_RESPONSE, VALID_AUDIT))
+    client_kwargs: dict[str, object] = {}
+    calls: list[dict[str, object]] = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=next(responses)))]
+            )
+
+    def fake_openai(**kwargs):  # type: ignore[no-untyped-def]
+        client_kwargs.update(kwargs)
+        return SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    monkeypatch.setattr("youtube_content_agent.editorial.OpenAI", fake_openai)
+    provider = OpenAIEditorialProvider(
+        "secret-not-logged",
+        "gpt-5.6-luna",
+        "http://provider.example/v1",
+    )
+
+    result = provider.create_topics(_metadata(), _transcript(), 1)
+
+    assert result.topics[0].topic == "普通工作日里的领导力"
+    assert provider.name == "openai:gpt-5.6-luna"
+    assert client_kwargs["base_url"] == "http://provider.example/v1"
+    assert len(calls) == 3
+    assert all(call["model"] == "gpt-5.6-luna" for call in calls)
 
 
 def _metadata() -> VideoMetadata:
