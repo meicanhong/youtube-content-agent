@@ -22,6 +22,7 @@ class SlideRenderer:
     STORYBOARD_MIN_FONT_SIZE = 30
     STORYBOARD_TEXT_WIDTH = 1000
     STORYBOARD_PANEL_VERTICAL_PADDING = 18
+    STORYBOARD_MAX_FRAMES_PER_PAGE = 10
     STORYBOARD_TERMINAL_PUNCTUATION = "，。；：！？、,.;:!?…—-·“”‘’\"'（）()【】[]《》〈〉"
     STORYBOARD_PUNCTUATION_PAIRS = {
         "”": "“",
@@ -48,7 +49,7 @@ class SlideRenderer:
         content: ContentData,
         images_dir: Path,
         storyboard_path: Path,
-    ) -> ContentData:
+    ) -> tuple[ContentData, list[Path]]:
         images_dir.mkdir(parents=True, exist_ok=True)
         updated_slides = []
         storyboard_frames: list[tuple[Path, str]] = []
@@ -59,16 +60,53 @@ class SlideRenderer:
                 candidate = self._best_frame(media_path, local_timestamp, images_dir)
                 frame = images_dir / f".frame-{slide.index:02d}.jpg"
                 candidate.replace(frame)
-                self._compose(frame, slide.zh_text, image_path)
-                storyboard_frames.append((frame, slide.zh_text))
+                display_text = self._strip_storyboard_punctuation(slide.zh_text)
+                if not display_text:
+                    raise ExternalToolError(f"第 {slide.index} 个分镜清除标点后没有可显示文字")
+                self._compose(frame, display_text, image_path)
+                storyboard_frames.append((frame, display_text))
                 updated_slides.append(
                     slide.model_copy(update={"image": f"images/{image_path.name}"})
                 )
-            self._compose_storyboard(storyboard_frames, storyboard_path)
+            storyboard_paths = self._compose_storyboards(storyboard_frames, storyboard_path)
         finally:
             for frame, _ in storyboard_frames:
                 frame.unlink(missing_ok=True)
-        return content.model_copy(update={"slides": updated_slides})
+        return content.model_copy(update={"slides": updated_slides}), storyboard_paths
+
+    def _compose_storyboards(
+        self,
+        frames: list[tuple[Path, str]],
+        output_path: Path,
+    ) -> list[Path]:
+        font = ImageFont.truetype(str(self.font_path), self.STORYBOARD_FONT_SIZE)
+        expanded = self._split_storyboard_captions(frames, font)
+        pages = self._paginate_storyboard_frames(expanded)
+        if len(pages) == 1:
+            output_paths = [output_path]
+        else:
+            output_paths = [
+                output_path.with_name(f"{output_path.stem}-{index:02d}{output_path.suffix}")
+                for index in range(1, len(pages) + 1)
+            ]
+        for page, page_path in zip(pages, output_paths, strict=True):
+            self._compose_storyboard_page(page, font, page_path)
+        return output_paths
+
+    @classmethod
+    def _paginate_storyboard_frames(
+        cls,
+        frames: list[tuple[Path, str]],
+    ) -> list[list[tuple[Path, str]]]:
+        if len(frames) < 2:
+            raise ExternalToolError("连续故事长图至少需要 2 个分镜")
+        pages = [
+            frames[index : index + cls.STORYBOARD_MAX_FRAMES_PER_PAGE]
+            for index in range(0, len(frames), cls.STORYBOARD_MAX_FRAMES_PER_PAGE)
+        ]
+        if len(pages) > 1 and len(pages[-1]) == 1:
+            pages[-1].insert(0, pages[-2].pop())
+        return pages
 
     def _best_frame(self, media_path: Path, timestamp: float, work_dir: Path) -> Path:
         candidates: list[tuple[float, Path]] = []
@@ -134,6 +172,14 @@ class SlideRenderer:
         if len(frames) < 2:
             raise ExternalToolError("连续故事长图至少需要 2 个分镜")
         frames, font = self._layout_storyboard_frames(frames)
+        self._compose_storyboard_page(frames, font, output_path)
+
+    def _compose_storyboard_page(
+        self,
+        frames: list[tuple[Path, str]],
+        font: ImageFont.FreeTypeFont,
+        output_path: Path,
+    ) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         compact_total = self.STORYBOARD_HEIGHT - self.STORYBOARD_HERO_HEIGHT
         compact_height, remainder = divmod(compact_total, len(frames) - 1)
@@ -178,10 +224,15 @@ class SlideRenderer:
         expanded: list[tuple[Path, str]] = []
         for frame_path, text in frames:
             for part in self._split_single_line(text, font, self.STORYBOARD_TEXT_WIDTH):
-                display_text = self._strip_terminal_punctuation(part)
+                display_text = self._strip_storyboard_punctuation(part)
                 if display_text:
                     expanded.append((frame_path, display_text))
         return expanded
+
+    @classmethod
+    def _strip_storyboard_punctuation(cls, text: str) -> str:
+        cleaned = cls._strip_terminal_punctuation(text).lstrip()
+        return cleaned.lstrip(cls.STORYBOARD_TERMINAL_PUNCTUATION).lstrip()
 
     @classmethod
     def _strip_terminal_punctuation(cls, text: str) -> str:

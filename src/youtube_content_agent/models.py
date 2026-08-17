@@ -59,7 +59,7 @@ class TopicProposal(StrictModel):
     topic: str = Field(min_length=2, max_length=80)
     source_start: float = Field(ge=0)
     source_end: float = Field(gt=0)
-    slides: list[SlideProposal] = Field(min_length=6, max_length=10)
+    slides: list[SlideProposal] = Field(min_length=6, max_length=14)
     caption: CaptionDraft
     quality_score: float = Field(ge=0, le=1)
 
@@ -82,7 +82,7 @@ class EditorialResponse(StrictModel):
 
 
 class StoryCoherenceIssue(StrictModel):
-    slide_index: int = Field(ge=1, le=10)
+    slide_index: int = Field(ge=1, le=14)
     category: Literal[
         "missing_bridge",
         "dangling_connector",
@@ -145,6 +145,7 @@ class PackageMetadata(StrictModel):
     editorial_provider: str
     image_count: int = Field(ge=0)
     storyboard_image: str | None = None
+    storyboard_images: list[str] = Field(default_factory=list)
     complete: bool
 
 

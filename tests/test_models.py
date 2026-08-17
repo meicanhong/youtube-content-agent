@@ -50,3 +50,16 @@ def test_slide_source_quote_allows_long_grounded_excerpt() -> None:
 
     assert len(slide.source_quote) > 300
     assert len(slide.source_quote) <= SOURCE_QUOTE_MAX_LENGTH
+
+
+def test_topic_allows_enough_slides_for_multiple_storyboard_pages() -> None:
+    topic = make_topic().model_dump()
+    template = topic["slides"][-1]
+    topic["slides"] = [
+        {**template, "timestamp": 12 + index, "source_quote": f"source {index}"}
+        for index in range(14)
+    ]
+
+    result = TopicProposal.model_validate(topic)
+
+    assert len(result.slides) == 14

@@ -79,7 +79,7 @@ class ContentPipeline:
                 min(metadata.duration, source.end + padding),
                 media_path,
             )
-            content = self.renderer.render(
+            content, storyboard_paths = self.renderer.render(
                 media_path,
                 media_origin,
                 content,
@@ -99,10 +99,11 @@ class ContentPipeline:
                 transcript_source=transcript.source,
                 editorial_provider=self.editorial.name,
                 image_count=len(content.slides),
-                storyboard_image="storyboard.jpg",
+                storyboard_image=storyboard_paths[0].name,
+                storyboard_images=[path.name for path in storyboard_paths],
                 complete=(
                     all(slide.image for slide in content.slides)
-                    and (package_dir / "storyboard.jpg").exists()
+                    and all(path.exists() for path in storyboard_paths)
                 ),
             )
             write_package(package_dir, source_data, content, package_metadata)

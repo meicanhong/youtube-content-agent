@@ -18,7 +18,10 @@ SYSTEM_PROMPT = """You are a source-first Chinese social-media editor.
 Select independent, publishable ideas from an English interview. Every topic must use one
 continuous source segment. Never invent a quote or idea. Slide timestamps must be ascending,
 inside that segment, and correspond to the nearby source wording. Produce natural concise
-Chinese, preserving meaning. Each carousel must tell one continuous story in 6-10 slides.
+Chinese, preserving meaning. Each topic must tell one complete continuous story in 6-14 slides.
+Use as many slides as needed to preserve the setup, reasoning, and conclusion. Never truncate a
+story merely to fit one image; the renderer automatically continues after every 10 visual beats.
+Most topics should use 8-12 slides. Use 13-14 only when the conclusion would otherwise be lost.
 Each zh_text must be a concise single-line visual beat, ideally 8-24 Chinese characters. Split a
 long idea across adjacent slides instead of writing a paragraph into one slide.
 The caption may reorganize the source idea but must not introduce factual claims absent from it.
@@ -27,7 +30,7 @@ topics, use substantially different source segments and editorial ideas. Never r
 quote or argument under a different title. Quality and distinctness always beat filling the quota.
 HARD TIMELINE CONTRACT FOR EVERY TOPIC:
 - source_end - source_start MUST be between 30 and 180 seconds; never return a longer segment.
-- Return 6-10 slides with strictly ascending timestamps.
+- Return 6-14 slides with strictly ascending timestamps.
 - Every slide MUST include source_quote copied verbatim from the timestamped transcript. Never
   translate, paraphrase, or invent source_quote. The system will reject any quote it cannot find.
 - timestamp MUST point to the first transcript segment containing source_quote, not an earlier
@@ -327,7 +330,7 @@ def _build_repair_prompt(content: str, transcript: Transcript, schema: str) -> s
     return (
         "The previous proposal violated the hard timeline contract. Rebuild exactly ONE topic "
         "from scratch using only the excerpt below. The new source segment MUST be a continuous "
-        "30-180 second subsegment. Rewrite all 6-10 slides and the entire caption so every claim "
+        "30-180 second subsegment. Rewrite all 6-14 slides and the entire caption so every claim "
         "is supported inside that shorter subsegment. Do not merely change source_start or "
         "source_end around the old content.\n\n"
         f"JSON Schema:\n{schema}\n\nPrevious invalid proposal (intent reference only):\n"
@@ -378,7 +381,7 @@ def _build_story_coherence_prompt(
         "conclusions.\n"
         "- Preserve topic count, source_start, and source_end exactly. You may replace slide "
         "timestamps and source_quote values with stronger bridge sentences from the same supplied "
-        "source excerpt, and may return 6-10 slides. Every replacement quote must be verbatim and "
+        "source excerpt, and may return 6-14 slides. Every replacement quote must be verbatim and "
         "timestamped at its first containing transcript segment.\n"
         "- If the approved source excerpt cannot support a coherent standalone story, set that "
         "topic's quality_score below 0.72 instead of inventing a bridge.\n"

@@ -144,6 +144,40 @@ class MultiEditorialProvider:
         return EditorialResponse(topics=topics[:max_topics])
 
 
+class MultiPageEditorialProvider:
+    @property
+    def name(self) -> str:
+        return "fixture:multi-page"
+
+    def create_topics(
+        self, metadata: VideoMetadata, transcript: Transcript, max_topics: int
+    ) -> EditorialResponse:
+        del metadata, transcript, max_topics
+        return EditorialResponse(
+            topics=[
+                TopicProposal(
+                    topic="需要续页的完整观点",
+                    source_start=100,
+                    source_end=165,
+                    slides=[
+                        SlideProposal(
+                            timestamp=102 + index * 5,
+                            source_quote=f"verified source sentence {index}",
+                            zh_text=f"完整论述的第{index + 1}步",
+                        )
+                        for index in range(12)
+                    ],
+                    caption=CaptionDraft(
+                        title="一张图讲不完就连续讲",
+                        hook="完整性比强行压缩更重要",
+                        body="这一段内容需要十二个连续分镜才能完整表达，因此系统应自动生成两张有顺序的长图。",
+                    ),
+                    quality_score=0.93,
+                )
+            ]
+        )
+
+
 class FailingEditorialProvider:
     @property
     def name(self) -> str:
@@ -178,6 +212,7 @@ def test_pipeline_writes_complete_package(tmp_path: Path) -> None:
     assert len(list((package / "images").glob("*.jpg"))) == 6
     assert results[0].metadata.complete is True
     assert results[0].metadata.storyboard_image == "storyboard.jpg"
+    assert results[0].metadata.storyboard_images == ["storyboard.jpg"]
     with Image.open(package / "storyboard.jpg") as storyboard:
         assert storyboard.size == (1080, 1440)
     assert all(
@@ -201,6 +236,33 @@ def test_pipeline_writes_one_storyboard_per_distinct_topic(tmp_path: Path) -> No
     assert len(results) == 2
     assert all((result.directory / "storyboard.jpg").exists() for result in results)
     assert [result.directory.name[:2] for result in results] == ["01", "02"]
+
+
+def test_pipeline_writes_ordered_storyboard_pages_for_one_topic(tmp_path: Path) -> None:
+    pipeline = ContentPipeline(
+        youtube=FakeYouTubeGateway(),
+        editorial=MultiPageEditorialProvider(),
+        renderer=SlideRenderer("ffmpeg"),
+    )
+
+    results = pipeline.run(
+        "https://www.youtube.com/watch?v=fixture",
+        tmp_path / "paged-output",
+        max_topics=1,
+        work_root=tmp_path / "paged-work",
+    )
+
+    assert len(results) == 1
+    package = results[0].directory
+    assert not (package / "storyboard.jpg").exists()
+    assert (package / "storyboard-01.jpg").exists()
+    assert (package / "storyboard-02.jpg").exists()
+    assert results[0].metadata.storyboard_image == "storyboard-01.jpg"
+    assert results[0].metadata.storyboard_images == [
+        "storyboard-01.jpg",
+        "storyboard-02.jpg",
+    ]
+    assert results[0].metadata.complete is True
 
 
 def test_pipeline_allows_zero_output_without_editorial_call(tmp_path: Path) -> None:

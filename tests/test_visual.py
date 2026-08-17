@@ -30,6 +30,15 @@ def test_storyboard_caption_removes_terminal_punctuation_only() -> None:
     )
 
 
+def test_storyboard_caption_never_starts_with_punctuation() -> None:
+    assert SlideRenderer._strip_storyboard_punctuation("，但是事情还没有结束。") == (
+        "但是事情还没有结束"
+    )
+    assert SlideRenderer._strip_storyboard_punctuation("“先把这一段讲完整”") == (
+        "先把这一段讲完整"
+    )
+
+
 def test_storyboard_uses_fixed_three_by_four_strip_layout(tmp_path: Path) -> None:
     renderer = SlideRenderer("ffmpeg")
     frame_paths: list[Path] = []
@@ -48,3 +57,24 @@ def test_storyboard_uses_fixed_three_by_four_strip_layout(tmp_path: Path) -> Non
     expanded, font = renderer._layout_storyboard_frames(frames)
     assert len(expanded) == 9
     assert font.size == 46
+
+
+def test_storyboard_continues_across_multiple_pages(tmp_path: Path) -> None:
+    renderer = SlideRenderer("ffmpeg")
+    frames: list[tuple[Path, str]] = []
+    for index in range(21):
+        frame_path = tmp_path / f"page-frame-{index}.jpg"
+        Image.new("RGB", (640, 360), (40 + index * 4, 50, 60)).save(frame_path)
+        frames.append((frame_path, f"这是连续内容的第{index + 1}步"))
+
+    outputs = renderer._compose_storyboards(frames, tmp_path / "storyboard.jpg")
+
+    assert [path.name for path in outputs] == [
+        "storyboard-01.jpg",
+        "storyboard-02.jpg",
+        "storyboard-03.jpg",
+    ]
+    assert [len(page) for page in renderer._paginate_storyboard_frames(frames)] == [10, 9, 2]
+    for output in outputs:
+        with Image.open(output) as storyboard:
+            assert storyboard.size == (1080, 1440)
