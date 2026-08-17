@@ -64,7 +64,13 @@ class YtDlpGateway:
 
     def fetch_metadata(self, url: str) -> VideoMetadata:
         result = self._run(
-            [*self._base_command(), "--dump-single-json", "--skip-download", url],
+            [
+                *self._base_command(),
+                "--ignore-no-formats-error",
+                "--dump-single-json",
+                "--skip-download",
+                url,
+            ],
             "metadata",
         )
         raw = json.loads(result.stdout)
@@ -100,6 +106,7 @@ class YtDlpGateway:
             template = str(Path(temp_name) / "subtitle.%(ext)s")
             command = [
                 *self._base_command(),
+                "--ignore-no-formats-error",
                 "--skip-download",
                 "--write-subs",
                 "--write-auto-subs",

@@ -23,6 +23,18 @@ class SlideRenderer:
     STORYBOARD_TEXT_WIDTH = 980
     STORYBOARD_MIN_PANEL_HEIGHT = 59
     STORYBOARD_TERMINAL_PUNCTUATION = "，。；：！？、,.;:!?…—-·“”‘’\"'（）()【】[]《》〈〉"
+    STORYBOARD_PUNCTUATION_PAIRS = {
+        "”": "“",
+        "’": "‘",
+        '"': '"',
+        "'": "'",
+        "）": "（",
+        ")": "(",
+        "】": "【",
+        "]": "[",
+        "》": "《",
+        "〉": "〈",
+    }
     CANDIDATE_OFFSETS = (-0.35, 0.0, 0.35)
 
     def __init__(self, ffmpeg_bin: str) -> None:
@@ -162,7 +174,21 @@ class SlideRenderer:
 
     @classmethod
     def _strip_terminal_punctuation(cls, text: str) -> str:
-        return text.rstrip().rstrip(cls.STORYBOARD_TERMINAL_PUNCTUATION).rstrip()
+        original = text.rstrip()
+        cleaned = original.rstrip(cls.STORYBOARD_TERMINAL_PUNCTUATION).rstrip()
+        removed_suffix = original[len(cleaned) :]
+        for closing, opening in cls.STORYBOARD_PUNCTUATION_PAIRS.items():
+            if closing not in removed_suffix:
+                continue
+            if opening == closing:
+                if cleaned.count(opening) % 2 == 0:
+                    continue
+            elif cleaned.count(opening) <= cleaned.count(closing):
+                continue
+            index = cleaned.rfind(opening)
+            if index >= 0:
+                cleaned = cleaned[:index] + cleaned[index + len(opening) :]
+        return cleaned.rstrip()
 
     @staticmethod
     def _split_single_line(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:

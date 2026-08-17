@@ -59,7 +59,7 @@ def run(
     configure_logging(verbose)
     selected_month = month or datetime.now(UTC).strftime("%Y-%m")
     run_output = output_dir / selected_month
-    settings = Settings()
+    settings = _with_browser_session(Settings(), cookies_from_browser)
     try:
         if generate_top > top_n:
             raise ConfigurationError("generate_top 不能大于 top_n")
@@ -127,6 +127,12 @@ def _build_sources(
         PodcastChartGateway(cache_path=work_dir / "podcast-seeds.json"),
         YouTubeDataGateway(settings.youtube_api_key),
     )
+
+
+def _with_browser_session(settings: Settings, browser: str | None) -> Settings:
+    if not browser:
+        return settings
+    return settings.model_copy(update={"yt_dlp_cookies_from_browser": browser})
 
 
 def _generate_ranked(

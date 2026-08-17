@@ -4,10 +4,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from youtube_content_agent.config import Settings
 from youtube_content_agent.errors import ExternalToolError
 from youtube_content_agent.trend import TrendRulePolicy, TrendService
 from youtube_content_agent.trend_ai import FixtureTrendRanker
-from youtube_content_agent.trend_cli import app
+from youtube_content_agent.trend_cli import _with_browser_session, app
 from youtube_content_agent.trend_sources import (
     FixturePodcastSeedGateway,
     FixtureTrendVideoGateway,
@@ -141,3 +142,9 @@ def test_trend_cli_runs_without_network_or_paid_ai(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "选出 3 条视频" in result.output
     assert (tmp_path / "2026-08" / "trend-report.json").exists()
+
+
+def test_browser_session_is_propagated_to_downstream_generation() -> None:
+    settings = _with_browser_session(Settings(), "chrome")
+
+    assert settings.yt_dlp_cookies_from_browser == "chrome"

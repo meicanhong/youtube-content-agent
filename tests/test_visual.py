@@ -21,4 +21,8 @@ def test_storyboard_caption_removes_terminal_punctuation_only() -> None:
     assert SlideRenderer._strip_terminal_punctuation("保留句中的逗号，但移除结尾。") == (
         "保留句中的逗号，但移除结尾"
     )
-    assert SlideRenderer._strip_terminal_punctuation("他说：“准备好了！”") == "他说：“准备好了"
+    assert SlideRenderer._strip_terminal_punctuation("他说：“准备好了！”") == "他说：准备好了"
+    assert SlideRenderer._strip_terminal_punctuation("都包含一个“低谷”") == "都包含一个低谷"
+    assert SlideRenderer._strip_terminal_punctuation("保留“句中强调”，继续表达") == (
+        "保留“句中强调”，继续表达"
+    )
