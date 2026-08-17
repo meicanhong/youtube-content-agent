@@ -22,6 +22,7 @@ from .trend_sources import (
     FixtureTrendVideoGateway,
     PodcastChartGateway,
     YouTubeDataGateway,
+    YtDlpTrendVideoGateway,
 )
 from .trend_storage import write_trend_report
 from .visual import SlideRenderer
@@ -46,6 +47,12 @@ def run(
     seed_fixture: Annotated[Path | None, typer.Option()] = None,
     video_fixture: Annotated[Path | None, typer.Option()] = None,
     ai_fixture: Annotated[Path | None, typer.Option()] = None,
+    no_youtube_api: Annotated[
+        bool, typer.Option("--no-youtube-api", help="Use slower yt-dlp metadata fallback")
+    ] = False,
+    cookies_from_browser: Annotated[
+        str | None, typer.Option(help="Browser session for yt-dlp, e.g. chrome")
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Discover and rank this month's publishable podcast/interview videos."""
@@ -57,7 +64,12 @@ def run(
         if generate_top > top_n:
             raise ConfigurationError("generate_top 不能大于 top_n")
         seed_gateway, video_gateway = _build_sources(
-            settings, work_dir, seed_fixture, video_fixture
+            settings,
+            work_dir,
+            seed_fixture,
+            video_fixture,
+            no_youtube_api,
+            cookies_from_browser,
         )
         ai_ranker: TrendAiRanker
         if ai_fixture:
@@ -95,11 +107,22 @@ def _build_sources(
     work_dir: Path,
     seed_fixture: Path | None,
     video_fixture: Path | None,
+    no_youtube_api: bool,
+    cookies_from_browser: str | None,
 ) -> tuple[PodcastSeedGateway, TrendVideoGateway]:
     if (seed_fixture is None) != (video_fixture is None):
         raise ConfigurationError("--seed-fixture 和 --video-fixture 必须同时提供")
     if seed_fixture and video_fixture:
         return FixturePodcastSeedGateway(seed_fixture), FixtureTrendVideoGateway(video_fixture)
+    if no_youtube_api or not settings.youtube_api_key:
+        return (
+            PodcastChartGateway(cache_path=work_dir / "podcast-seeds.json"),
+            YtDlpTrendVideoGateway(
+                settings.yt_dlp_bin,
+                cookies_from_browser or settings.yt_dlp_cookies_from_browser,
+                work_dir / "yt-dlp-trend-cache",
+            ),
+        )
     return (
         PodcastChartGateway(cache_path=work_dir / "podcast-seeds.json"),
         YouTubeDataGateway(settings.youtube_api_key),

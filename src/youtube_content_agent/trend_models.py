@@ -92,6 +92,7 @@ class TrendReport(TrendStrictModel):
     generated_at: datetime
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
     chart_source: str
+    video_source: str
     seed_count: int = Field(ge=0)
     candidate_count: int = Field(ge=0)
     eligible_count: int = Field(ge=0)

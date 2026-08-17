@@ -147,6 +147,7 @@ class TrendService:
             generated_at=as_of,
             month=month,
             chart_source=self.seeds.source_name,
+            video_source=self.videos.source_name,
             seed_count=len(seed_list),
             candidate_count=len(candidates),
             eligible_count=len(eligible),

@@ -13,6 +13,7 @@ from youtube_content_agent.trend_sources import (
     FixtureTrendVideoGateway,
     PodcastChartGateway,
     YouTubeDataGateway,
+    YtDlpTrendVideoGateway,
 )
 from youtube_content_agent.trend_storage import write_trend_report
 
@@ -59,6 +60,35 @@ def test_rule_policy_rejects_clips_and_missing_captions() -> None:
     assert assessments["doac001"].eligible is True
 
 
+def test_yt_dlp_fallback_maps_public_metadata() -> None:
+    seed = FixturePodcastSeedGateway(FIXTURES / "trend_seeds.json").fetch_seeds(1)[0]
+    raw = {
+        "id": "fallback001",
+        "webpage_url": "https://www.youtube.com/watch?v=fallback001",
+        "title": "A Full Interview",
+        "description": "Long-form conversation",
+        "channel": "Example Channel",
+        "timestamp": datetime(2026, 8, 10, tzinfo=UTC).timestamp(),
+        "duration": 3600,
+        "view_count": 250000,
+        "live_status": "not_live",
+        "subtitles": {},
+        "automatic_captions": {"en": [{"ext": "vtt"}]},
+    }
+
+    video = YtDlpTrendVideoGateway._map_entry(
+        raw,
+        seed,
+        datetime(2026, 8, 1, tzinfo=UTC),
+        datetime(2026, 9, 1, tzinfo=UTC),
+    )
+
+    assert video is not None
+    assert video.video_id == "fallback001"
+    assert video.has_captions is True
+    assert video.view_count == 250000
+
+
 def test_trend_service_and_report_are_auditable(tmp_path: Path) -> None:
     service = TrendService(
         FixturePodcastSeedGateway(FIXTURES / "trend_seeds.json"),
@@ -72,6 +102,7 @@ def test_trend_service_and_report_are_auditable(tmp_path: Path) -> None:
     assert report.seed_count == 3
     assert report.candidate_count == 5
     assert report.eligible_count == 3
+    assert report.video_source == "fixture:trend_videos.json"
     assert report.ranked[0].video.video_id == "doac001"
     assert report.excluded_reason_counts == {
         "captions_unavailable": 1,

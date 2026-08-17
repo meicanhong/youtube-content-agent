@@ -13,6 +13,7 @@ def write_trend_report(output_dir: Path, report: TrendReport) -> None:
         f"- 种子节目：{report.seed_count}",
         f"- 本月候选：{report.candidate_count}",
         f"- 规则通过：{report.eligible_count}",
+        f"- 单集数据：{report.video_source}",
         f"- AI：{report.ai_provider}",
         "",
         "| 排名 | 视频 | 频道 | 播放量 | 日均播放 | 综合分 | 入选理由 |",

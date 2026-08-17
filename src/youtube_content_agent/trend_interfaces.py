@@ -12,6 +12,9 @@ class PodcastSeedGateway(Protocol):
 
 
 class TrendVideoGateway(Protocol):
+    @property
+    def source_name(self) -> str: ...
+
     def fetch_month_videos(
         self,
         seeds: list[PodcastSeed],

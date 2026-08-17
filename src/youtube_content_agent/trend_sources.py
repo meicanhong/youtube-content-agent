@@ -4,6 +4,7 @@ import html
 import json
 import logging
 import re
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
@@ -182,6 +183,10 @@ class YouTubeDataGateway:
             )
         self.api_key = api_key
 
+    @property
+    def source_name(self) -> str:
+        return "youtube-data-api-v3"
+
     def fetch_month_videos(
         self,
         seeds: list[PodcastSeed],
@@ -345,6 +350,10 @@ class FixtureTrendVideoGateway:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    @property
+    def source_name(self) -> str:
+        return f"fixture:{self.path.name}"
+
     def fetch_month_videos(
         self,
         seeds: list[PodcastSeed],
@@ -360,3 +369,171 @@ class FixtureTrendVideoGateway:
         except (OSError, ValidationError) as exc:
             raise ConfigurationError(f"Trend video fixture 无法读取：{self.path}") from exc
         return [video for video in videos if month_start <= video.published_at < month_end]
+
+
+class YtDlpTrendVideoGateway:
+    """No-API-key fallback using authenticated yt-dlp metadata extraction."""
+
+    def __init__(
+        self,
+        yt_dlp_bin: str,
+        cookies_from_browser: str | None,
+        cache_dir: Path,
+        max_workers: int = 3,
+    ) -> None:
+        self.yt_dlp_bin = yt_dlp_bin
+        self.cookies_from_browser = cookies_from_browser
+        self.cache_dir = cache_dir
+        self.max_workers = max_workers
+
+    @property
+    def source_name(self) -> str:
+        auth = self.cookies_from_browser or "anonymous"
+        return f"yt-dlp:{auth}"
+
+    def fetch_month_videos(
+        self,
+        seeds: list[PodcastSeed],
+        month_start: datetime,
+        month_end: datetime,
+        episodes_per_show: int,
+    ) -> list[TrendVideo]:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        collected: list[TrendVideo] = []
+        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(seeds))) as executor:
+            futures = {
+                executor.submit(
+                    self._fetch_seed,
+                    seed,
+                    month_start,
+                    month_end,
+                    episodes_per_show,
+                ): seed
+                for seed in seeds
+            }
+            for future in as_completed(futures):
+                seed = futures[future]
+                try:
+                    collected.extend(future.result())
+                except ExternalToolError:
+                    logger.warning(
+                        "yt-dlp trend seed failed",
+                        extra={
+                            "event": "external_partial_failure",
+                            "operation": "yt_dlp_trend_seed",
+                            "resource_id": str(seed.chart_rank),
+                            "provider": "yt-dlp",
+                        },
+                    )
+        unique: dict[str, TrendVideo] = {}
+        for video in sorted(collected, key=lambda item: item.seed_rank):
+            unique.setdefault(video.video_id, video)
+        if not unique:
+            raise ExternalToolError(
+                "yt-dlp 未读取到候选；请设置 --cookies-from-browser chrome 后重试"
+            )
+        return sorted(unique.values(), key=lambda video: (-video.view_count, video.seed_rank))
+
+    def _fetch_seed(
+        self,
+        seed: PodcastSeed,
+        month_start: datetime,
+        month_end: datetime,
+        episodes_per_show: int,
+    ) -> list[TrendVideo]:
+        cache_path = self.cache_dir / (
+            f"{month_start.strftime('%Y-%m')}-{seed.chart_rank:03d}.json"
+        )
+        cached = self._read_seed_cache(cache_path)
+        if cached is not None:
+            return cached
+        command = [
+            self.yt_dlp_bin,
+            "--ignore-no-formats-error",
+            "--ignore-errors",
+            "--skip-download",
+            "--dump-json",
+            "--no-warnings",
+            "--playlist-end",
+            str(episodes_per_show),
+        ]
+        if self.cookies_from_browser:
+            command.extend(["--cookies-from-browser", self.cookies_from_browser])
+        command.append(seed.playlist_url)
+        try:
+            result = subprocess.run(command, text=True, capture_output=True, check=False)
+        except OSError as exc:
+            raise ExternalToolError(f"无法启动 yt-dlp：{exc}") from exc
+        videos: list[TrendVideo] = []
+        for line in result.stdout.splitlines():
+            try:
+                raw = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            video = self._map_entry(raw, seed, month_start, month_end)
+            if video is not None:
+                videos.append(video)
+        if result.returncode != 0 and not videos:
+            detail = self._safe_error(result.stderr)
+            raise ExternalToolError(f"yt-dlp 榜单元数据失败：{detail}")
+        payload = [video.model_dump(mode="json") for video in videos]
+        cache_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        return videos
+
+    @staticmethod
+    def _map_entry(
+        raw: dict[str, Any],
+        seed: PodcastSeed,
+        month_start: datetime,
+        month_end: datetime,
+    ) -> TrendVideo | None:
+        video_id = raw.get("id")
+        timestamp = raw.get("timestamp")
+        duration = raw.get("duration")
+        if not video_id or timestamp is None or duration is None:
+            return None
+        published_at = datetime.fromtimestamp(float(timestamp), UTC)
+        if not month_start <= published_at < month_end or float(duration) <= 0:
+            return None
+        subtitles = raw.get("subtitles") or {}
+        automatic = raw.get("automatic_captions") or {}
+        caption_languages = {*subtitles.keys(), *automatic.keys()}
+        has_english = any(str(language).lower().startswith("en") for language in caption_languages)
+        live_status = str(raw.get("live_status") or "not_live")
+        return TrendVideo(
+            video_id=str(video_id),
+            youtube_url=str(
+                raw.get("webpage_url")
+                or raw.get("url")
+                or f"https://www.youtube.com/watch?v={video_id}"
+            ),
+            title=str(raw.get("title") or "Untitled"),
+            description=str(raw.get("description") or "")[:4000],
+            channel=str(raw.get("channel") or raw.get("uploader") or seed.publisher),
+            published_at=published_at,
+            duration_seconds=round(float(duration)),
+            view_count=max(0, int(raw.get("view_count") or 0)),
+            has_captions=has_english,
+            is_live=live_status in {"is_live", "is_upcoming"},
+            seed_rank=seed.chart_rank,
+            seed_name=seed.podcast_name,
+        )
+
+    @staticmethod
+    def _read_seed_cache(path: Path) -> list[TrendVideo] | None:
+        if not path.exists():
+            return None
+        age = datetime.now(UTC).timestamp() - path.stat().st_mtime
+        if age > timedelta(hours=6).total_seconds():
+            return None
+        try:
+            return TypeAdapter(list[TrendVideo]).validate_json(path.read_text(encoding="utf-8"))
+        except (OSError, ValidationError):
+            return None
+
+    @staticmethod
+    def _safe_error(stderr: str) -> str:
+        last_line = stderr.strip().splitlines()[-1] if stderr.strip() else "unknown error"
+        return re.sub(r"https?://\S+", "<url>", last_line)[:300]

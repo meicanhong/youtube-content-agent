@@ -63,8 +63,8 @@ Editorial 请求会显式设置 `thinking.type=disabled`。这是因为该任务
 如需切回 OpenAI，可设置 `EDITORIAL_PROVIDER=openai`，并配置 `OPENAI_API_KEY` 与
 `OPENAI_MODEL`。
 
-手工 URL-to-package 不需要 `YOUTUBE_API_KEY`。自动发现命令 `youtube-content-trend`
-需要在 Google Cloud 启用 YouTube Data API v3，并把 Key 写入 `.env`：
+手工 URL-to-package 不需要 `YOUTUBE_API_KEY`。自动发现命令优先使用 YouTube Data API v3；
+这是速度和稳定性最好的方式，可在 Google Cloud 启用后把 Key 写入 `.env`：
 
 ```dotenv
 YOUTUBE_API_KEY=...
@@ -72,6 +72,23 @@ YOUTUBE_API_KEY=...
 
 该 Key 只用于读取公开 Playlist、发布时间、时长、字幕标记和播放量，不用于登录或修改
 YouTube 内容。
+
+没有 API Key 时也可显式使用本机浏览器会话，通过 `yt-dlp` 逐条读取同样的公开元数据：
+
+```bash
+uv run youtube-content-trend \
+  --month 2026-08 \
+  --no-youtube-api \
+  --cookies-from-browser chrome \
+  --max-seeds 100 \
+  --episodes-per-show 3 \
+  --preselect 30 \
+  --top-n 10
+```
+
+无 Key 模式不会导出或保存 Cookie，但需要读取 Chrome 已登录的 YouTube 会话。它会缓存
+每个节目的元数据 6 小时；速度明显慢于 Data API，也更容易受到 YouTube Bot 验证影响。
+建议首次先用 `--episodes-per-show 3`，需要扩大本月覆盖时再提高到 5–10。
 
 ## 自动发现本月 Top 10
 
@@ -223,7 +240,7 @@ uv run mypy src
 ## 当前边界
 
 - 没有 MiMo/OpenAI Key 时只能用显式 fixture 验证全链路，不能评价真实选题质量。
-- 自动发现依赖 YouTube Data API v3；官方榜单本身是美国周榜、按观看时长排名，不等于全球月度单集播放榜，因此系统把它作为种子池，再按本月单集公开数据重排。
+- 自动发现优先使用 YouTube Data API v3，也支持较慢的 yt-dlp + 浏览器会话 fallback；官方榜单本身是美国周榜、按观看时长排名，不等于全球月度单集播放榜，因此系统把它作为种子池，再按本月单集公开数据重排。
 - Podcast Playlist 的维护顺序由频道决定；当前每个节目默认读取前 25 个条目，极高频或未按新到旧维护的 Playlist 可能漏掉本月旧一些的单集。
 - 部分 YouTube 视频可能因地区、年龄、登录或 Bot 验证无法匿名下载。
 - 超长 Transcript 目前一次提交给模型；生产化前应增加章节化候选召回与二阶段筛选。

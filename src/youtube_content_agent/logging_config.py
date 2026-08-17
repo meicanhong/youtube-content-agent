@@ -26,3 +26,5 @@ def configure_logging(verbose: bool = False) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
+    for noisy_logger in ("openai", "httpx", "httpcore", "urllib3"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
