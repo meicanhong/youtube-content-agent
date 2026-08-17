@@ -1,10 +1,16 @@
 # YouTube 海外访谈内容自动化 Agent
 
-输入一条带英文字幕的 YouTube Podcast / Interview URL，输出一至多个可人工审核的中文社交媒体轮播图 Content Package。当前 MVP 聚焦最有价值的加工链路，不包含 Trend Agent、自动发布、Dashboard 或数据库。
+支持两种入口：输入一条带英文字幕的 YouTube Podcast / Interview URL，或让 Trend Agent 从 YouTube Podcast Top 100 中自动发现本月候选。最终输出一至多个可人工审核的中文社交媒体轮播图 Content Package。当前版本不包含自动发布、Dashboard 或数据库。
 
 ## 当前能力
 
 ```text
+YouTube Podcast Top 100（可选）
+  -> 本月单集指标
+  -> Rule 硬过滤与播放表现评分
+  -> MiMo 内容适配精排
+  -> Top 10 YouTube URL
+  ->
 YouTube URL
   -> yt-dlp 元数据
   -> YouTube 人工/自动英文字幕（带时间戳）
@@ -57,7 +63,73 @@ Editorial 请求会显式设置 `thinking.type=disabled`。这是因为该任务
 如需切回 OpenAI，可设置 `EDITORIAL_PROVIDER=openai`，并配置 `OPENAI_API_KEY` 与
 `OPENAI_MODEL`。
 
-URL-to-package MVP 不需要 `YOUTUBE_API_KEY`；该 Key 留给下一阶段 Trend Agent 使用。
+手工 URL-to-package 不需要 `YOUTUBE_API_KEY`。自动发现命令 `youtube-content-trend`
+需要在 Google Cloud 启用 YouTube Data API v3，并把 Key 写入 `.env`：
+
+```dotenv
+YOUTUBE_API_KEY=...
+```
+
+该 Key 只用于读取公开 Playlist、发布时间、时长、字幕标记和播放量，不用于登录或修改
+YouTube 内容。
+
+## 自动发现本月 Top 10
+
+Trend Agent 将最新 YouTube Podcast Top 100 周榜作为节目种子，通过 YouTube Data API
+读取本月单集，再执行两层筛选：
+
+1. Rule 硬过滤：月份、20 分钟至 4 小时、公开播放量、英文字幕标记、非直播、非 Short / Clip / Trailer。
+2. Rule 评分：绝对播放量、日均播放量、节目榜单名次和发布时间新鲜度。
+3. MiMo 精排：中文受众吸引力、观点密度、故事线、画面适配、嘉宾认知度和内容风险。
+4. 最终分：55% Rule + 45% AI；同一节目优先最多保留 2 条，避免榜单被单一频道占满。
+
+AI 不生成或修改播放量，只评估标题、频道、简介和节目背景。默认先由规则从全部候选筛到
+30 条，再交给 MiMo，避免把 Top 100 的完整字幕全部送入模型。
+
+```bash
+uv run youtube-content-trend \
+  --month 2026-08 \
+  --output-dir outputs/trends \
+  --max-seeds 100 \
+  --preselect 30 \
+  --top-n 10
+```
+
+输出：
+
+```text
+outputs/trends/2026-08/
+├── trend-report.json  # 种子快照、规则结果、AI 六维评分和最终排名
+└── top10.md           # 可点击的 Top 10 URL 与中文入选理由
+```
+
+如果要把排名前 3 的视频直接送入现有长图流水线：
+
+```bash
+uv run youtube-content-trend \
+  --month 2026-08 \
+  --top-n 10 \
+  --generate-top 3 \
+  --max-topics 1
+```
+
+`--generate-top` 会额外获取字幕、调用 Editorial 并下载选题片段；默认值为 `0`，即只输出
+候选榜单，不产生后续长图费用。
+
+### 无网络、无付费 API 的 Trend 演示
+
+```bash
+uv run youtube-content-trend \
+  --month 2026-08 \
+  --top-n 3 \
+  --preselect 3 \
+  --max-seeds 3 \
+  --seed-fixture fixtures/trend_seeds.json \
+  --video-fixture fixtures/trend_videos.json \
+  --ai-fixture fixtures/trend_ai.json
+```
+
+fixture 必须显式传入，报告会标记 `fixture` provider，不会伪装成真实实时榜单。
 
 ## 正式运行
 
@@ -151,6 +223,8 @@ uv run mypy src
 ## 当前边界
 
 - 没有 MiMo/OpenAI Key 时只能用显式 fixture 验证全链路，不能评价真实选题质量。
+- 自动发现依赖 YouTube Data API v3；官方榜单本身是美国周榜、按观看时长排名，不等于全球月度单集播放榜，因此系统把它作为种子池，再按本月单集公开数据重排。
+- Podcast Playlist 的维护顺序由频道决定；当前每个节目默认读取前 25 个条目，极高频或未按新到旧维护的 Playlist 可能漏掉本月旧一些的单集。
 - 部分 YouTube 视频可能因地区、年龄、登录或 Bot 验证无法匿名下载。
 - 超长 Transcript 目前一次提交给模型；生产化前应增加章节化候选召回与二阶段筛选。
 - 当前截图评分不理解人物身份，仍需要人工检查构图、表情和字幕是否挡脸。
@@ -158,4 +232,4 @@ uv run mypy src
 
 ## 下一阶段
 
-先用 10-20 条真实长访谈建立编辑验收集，量化“至少一个可轻改发布”的命中率，再优化 Editorial 召回和视觉选帧。内容链稳定后，再接 YouTube Data API v3 的 Monthly Top / Trending Top，而不是提前建设榜单或 Dashboard。
+先用 10-20 条真实长访谈建立编辑验收集，量化“至少一个可轻改发布”的命中率，再优化 Trend 权重、Editorial 召回和视觉选帧。榜单需要积累每日播放量快照，才能从“当前日均播放”升级为真实的播放增速曲线。

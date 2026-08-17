@@ -1,0 +1,34 @@
+{
+  "assessments": [
+    {
+      "video_id": "doac001",
+      "china_interest": 92,
+      "insight_density": 91,
+      "narrative_arc": 94,
+      "visual_suitability": 88,
+      "guest_recognition": 72,
+      "risk_score": 5,
+      "reason": "创业转折清晰，兼具人物故事与可执行观点，适合连续叙事长图"
+    },
+    {
+      "video_id": "shawn001",
+      "china_interest": 80,
+      "insight_density": 82,
+      "narrative_arc": 95,
+      "visual_suitability": 86,
+      "guest_recognition": 65,
+      "risk_score": 12,
+      "reason": "人物重建经历完整，情绪张力强，但需控制军事与创伤内容风险"
+    },
+    {
+      "video_id": "rogan001",
+      "china_interest": 86,
+      "insight_density": 88,
+      "narrative_arc": 75,
+      "visual_suitability": 82,
+      "guest_recognition": 90,
+      "risk_score": 10,
+      "reason": "科学与个人成长话题受众广，观点密度高，需核查健康相关表述"
+    }
+  ]
+}

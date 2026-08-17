@@ -1,0 +1,20 @@
+[
+  {
+    "chart_rank": 3,
+    "podcast_name": "The Joe Rogan Experience",
+    "publisher": "PowerfulJRE",
+    "playlist_url": "https://www.youtube.com/playlist?list=PL_FIXTURE_JRE"
+  },
+  {
+    "chart_rank": 4,
+    "podcast_name": "The Diary Of A CEO",
+    "publisher": "The Diary Of A CEO",
+    "playlist_url": "https://www.youtube.com/playlist?list=PL_FIXTURE_DOAC"
+  },
+  {
+    "chart_rank": 5,
+    "podcast_name": "Shawn Ryan Show",
+    "publisher": "Shawn Ryan Show",
+    "playlist_url": "https://www.youtube.com/playlist?list=PL_FIXTURE_SRS"
+  }
+]

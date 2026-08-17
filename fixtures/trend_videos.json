@@ -1,0 +1,72 @@
+[
+  {
+    "video_id": "doac001",
+    "youtube_url": "https://www.youtube.com/watch?v=doac001",
+    "title": "Founder Reveals the Decision That Changed Everything",
+    "description": "A full conversation about failure, leadership and rebuilding a company.",
+    "channel": "The Diary Of A CEO",
+    "published_at": "2026-08-14T10:00:00Z",
+    "duration_seconds": 5400,
+    "view_count": 3200000,
+    "has_captions": true,
+    "is_live": false,
+    "seed_rank": 4,
+    "seed_name": "The Diary Of A CEO"
+  },
+  {
+    "video_id": "shawn001",
+    "youtube_url": "https://www.youtube.com/watch?v=shawn001",
+    "title": "A Veteran's Story of Survival and Starting Again",
+    "description": "A long-form interview about resilience, identity and a second career.",
+    "channel": "Shawn Ryan Show",
+    "published_at": "2026-08-12T10:00:00Z",
+    "duration_seconds": 7200,
+    "view_count": 2100000,
+    "has_captions": true,
+    "is_live": false,
+    "seed_rank": 5,
+    "seed_name": "Shawn Ryan Show"
+  },
+  {
+    "video_id": "rogan001",
+    "youtube_url": "https://www.youtube.com/watch?v=rogan001",
+    "title": "Scientist Explains the Future of Human Performance",
+    "description": "A full interview covering research, habits and practical decisions.",
+    "channel": "PowerfulJRE",
+    "published_at": "2026-08-08T10:00:00Z",
+    "duration_seconds": 9000,
+    "view_count": 1800000,
+    "has_captions": true,
+    "is_live": false,
+    "seed_rank": 3,
+    "seed_name": "The Joe Rogan Experience"
+  },
+  {
+    "video_id": "clip001",
+    "youtube_url": "https://www.youtube.com/watch?v=clip001",
+    "title": "Best Moments and Highlights Clip",
+    "description": "Short highlights.",
+    "channel": "PowerfulJRE",
+    "published_at": "2026-08-09T10:00:00Z",
+    "duration_seconds": 420,
+    "view_count": 5000000,
+    "has_captions": true,
+    "is_live": false,
+    "seed_rank": 3,
+    "seed_name": "The Joe Rogan Experience"
+  },
+  {
+    "video_id": "nocap001",
+    "youtube_url": "https://www.youtube.com/watch?v=nocap001",
+    "title": "Full Interview Without Captions",
+    "description": "An interview with no caption track.",
+    "channel": "Shawn Ryan Show",
+    "published_at": "2026-08-11T10:00:00Z",
+    "duration_seconds": 5000,
+    "view_count": 900000,
+    "has_captions": false,
+    "is_live": false,
+    "seed_rank": 5,
+    "seed_name": "Shawn Ryan Show"
+  }
+]
