@@ -31,7 +31,7 @@ def run(
         Path,
         typer.Option(help="Intermediate cache root (transcript and source media)"),
     ] = Path("work/youtube-content-agent"),
-    max_topics: Annotated[int, typer.Option(min=1, max=5)] = 3,
+    max_topics: Annotated[int, typer.Option(min=0, max=6)] = 6,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Generate traceable Chinese carousel packages from one YouTube URL."""

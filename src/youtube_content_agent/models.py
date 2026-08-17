@@ -75,7 +75,7 @@ class TopicProposal(StrictModel):
 
 
 class EditorialResponse(StrictModel):
-    topics: list[TopicProposal] = Field(min_length=1, max_length=5)
+    topics: list[TopicProposal] = Field(max_length=6)
 
 
 class SourceSegment(StrictModel):

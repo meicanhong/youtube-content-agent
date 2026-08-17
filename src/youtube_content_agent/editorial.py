@@ -19,6 +19,9 @@ continuous source segment. Never invent a quote or idea. Slide timestamps must b
 inside that segment, and correspond to the nearby source wording. Produce natural concise
 Chinese, preserving meaning. Each carousel must tell one continuous story in 6-10 slides.
 The caption may reorganize the source idea but must not introduce factual claims absent from it.
+Return zero topics when the transcript contains no strong standalone idea. When returning multiple
+topics, use substantially different source segments and editorial ideas. Never repackage the same
+quote or argument under a different title. Quality and distinctness always beat filling the quota.
 HARD TIMELINE CONTRACT FOR EVERY TOPIC:
 - source_end - source_start MUST be between 30 and 180 seconds; never return a longer segment.
 - Return 6-10 slides with strictly ascending timestamps.
@@ -60,7 +63,8 @@ class OpenAIEditorialProvider:
         )
         user_prompt = (
             f"Video: {metadata.title}\nChannel: {metadata.channel}\n"
-            f"Return at most {max_topics} topics.\n\nTimestamped transcript:\n{transcript_text}"
+            f"{_topic_count_instruction(max_topics)}\n\n"
+            f"Timestamped transcript:\n{transcript_text}"
         )
         try:
             response = self.client.responses.parse(
@@ -100,7 +104,7 @@ class MimoEditorialProvider:
         schema = json.dumps(EditorialResponse.model_json_schema(), ensure_ascii=False)
         user_prompt = (
             f"Video: {metadata.title}\nChannel: {metadata.channel}\n"
-            f"Return at most {max_topics} topics.\n\nJSON Schema:\n{schema}\n\n"
+            f"{_topic_count_instruction(max_topics)}\n\nJSON Schema:\n{schema}\n\n"
             f"Timestamped transcript:\n{transcript_text}"
         )
         content = self._complete(user_prompt)
@@ -154,6 +158,16 @@ class MimoEditorialProvider:
 def _format_transcript(transcript: Transcript) -> str:
     return "\n".join(
         f"[{segment.start:.2f}-{segment.end:.2f}] {segment.text}" for segment in transcript.segments
+    )
+
+
+def _topic_count_instruction(max_topics: int) -> str:
+    if max_topics == 0:
+        return "Return zero topics."
+    return (
+        f"Return between 0 and {max_topics} topics. Find as many strong, distinct ideas as the "
+        "transcript genuinely supports, without padding. Each topic must use a substantially "
+        "different source segment and argument."
     )
 
 

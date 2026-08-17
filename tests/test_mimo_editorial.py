@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from youtube_content_agent.editorial import (
     MimoEditorialProvider,
     _parse_editorial_json,
     _safe_timeline_diagnostic,
+    _topic_count_instruction,
 )
 from youtube_content_agent.errors import ConfigurationError, ExternalToolError
 from youtube_content_agent.models import Transcript, TranscriptSegment, VideoMetadata
@@ -46,16 +48,21 @@ def test_parse_mimo_json_accepts_markdown_fence() -> None:
     assert parsed.topics[0].source_start == 100
 
 
-def test_parse_mimo_json_rejects_invalid_schema() -> None:
-    with pytest.raises(ExternalToolError, match="数据模型校验"):
-        _parse_editorial_json('{"topics": []}', "MiMo")
+def test_parse_mimo_json_accepts_zero_topics() -> None:
+    assert _parse_editorial_json('{"topics": []}', "MiMo").topics == []
 
 
-def test_parse_mimo_json_reports_safe_validation_location() -> None:
-    with pytest.raises(
-        ExternalToolError, match=r"topics:too_short:List should have at least 1 item"
-    ):
-        _parse_editorial_json('{"topics": []}', "MiMo")
+def test_parse_mimo_json_rejects_more_than_six_topics() -> None:
+    topic = json.loads(VALID_RESPONSE)["topics"][0]
+    payload = json.dumps({"topics": [topic] * 7})
+    with pytest.raises(ExternalToolError):
+        _parse_editorial_json(payload, "MiMo")
+
+
+def test_topic_count_instruction_allows_zero_without_padding() -> None:
+    instruction = _topic_count_instruction(6)
+    assert "between 0 and 6" in instruction
+    assert "without padding" in instruction
 
 
 def test_timeline_diagnostic_only_reports_numeric_ranges() -> None:
@@ -69,6 +76,7 @@ def test_mimo_calls_chat_completions(monkeypatch) -> None:  # type: ignore[no-un
 
     class FakeCompletions:
         def create(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured.setdefault("initial_messages", kwargs["messages"])
             captured.update(kwargs)
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=VALID_RESPONSE))]
@@ -93,11 +101,14 @@ def test_mimo_calls_chat_completions(monkeypatch) -> None:  # type: ignore[no-un
         source="fixture",
         segments=[TranscriptSegment(start=100, end=140, text="Verified source")],
     )
-    result = provider.create_topics(metadata, transcript, 1)
+    result = provider.create_topics(metadata, transcript, 6)
     assert result.topics[0].topic == "普通工作日里的领导力"
     assert captured["model"] == "mimo-v2.5"
     assert captured["temperature"] == 0.3
     assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
+    messages = captured["initial_messages"]
+    assert isinstance(messages, list)
+    assert "between 0 and 6" in messages[1]["content"]
 
 
 def test_mimo_repairs_invalid_long_segment_once(monkeypatch) -> None:  # type: ignore[no-untyped-def]

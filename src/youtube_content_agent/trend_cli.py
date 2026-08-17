@@ -43,7 +43,7 @@ def run(
     preselect: Annotated[int, typer.Option(min=1, max=50)] = 30,
     episodes_per_show: Annotated[int, typer.Option(min=1, max=50)] = 25,
     generate_top: Annotated[int, typer.Option(min=0, max=10)] = 0,
-    max_topics: Annotated[int, typer.Option(min=1, max=5)] = 1,
+    max_topics: Annotated[int, typer.Option(min=0, max=6)] = 6,
     seed_fixture: Annotated[Path | None, typer.Option()] = None,
     video_fixture: Annotated[Path | None, typer.Option()] = None,
     ai_fixture: Annotated[Path | None, typer.Option()] = None,

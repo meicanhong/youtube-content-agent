@@ -40,11 +40,11 @@ class FakeYouTubeGateway:
             source="fixture",
             segments=[
                 TranscriptSegment(
-                    start=100 + index * 10,
-                    end=110 + index * 10,
+                    start=100 + index * 5,
+                    end=105 + index * 5,
                     text=f"This is verified source sentence {index}.",
                 )
-                for index in range(7)
+                for index in range(14)
             ],
         )
 
@@ -97,7 +97,7 @@ class FakeEditorialProvider:
                             source_quote=f"verified source sentence {index - 1}",
                             zh_text=f"连续叙事的第 {index} 步",
                         )
-                        for index, value in enumerate((102, 112, 122, 132, 142, 152), start=1)
+                        for index, value in enumerate((102, 107, 112, 117, 122, 127), start=1)
                     ],
                     caption=CaptionDraft(
                         title="真正值钱的是可追溯",
@@ -108,6 +108,52 @@ class FakeEditorialProvider:
                 )
             ]
         )
+
+
+class MultiEditorialProvider:
+    @property
+    def name(self) -> str:
+        return "fixture:multi"
+
+    def create_topics(
+        self, metadata: VideoMetadata, transcript: Transcript, max_topics: int
+    ) -> EditorialResponse:
+        del metadata, transcript
+        topics = [
+            TopicProposal(
+                topic=f"测试观点{topic_index}",
+                source_start=start,
+                source_end=start + 30,
+                slides=[
+                    SlideProposal(
+                        timestamp=start + 2 + slide_index * 5,
+                        source_quote=f"verified source sentence {source_index + slide_index}",
+                        zh_text=f"观点{topic_index}的第{slide_index + 1}步",
+                    )
+                    for slide_index in range(6)
+                ],
+                caption=CaptionDraft(
+                    title=f"独立金句主题{topic_index}",
+                    hook=f"这是第{topic_index}个独立观点",
+                    body="这是一段彼此独立且能够完整回溯到原始字幕的内容，足以单独生成一张长图。",
+                ),
+                quality_score=0.9,
+            )
+            for topic_index, (start, source_index) in enumerate(((100, 0), (135, 7)), start=1)
+        ]
+        return EditorialResponse(topics=topics[:max_topics])
+
+
+class FailingEditorialProvider:
+    @property
+    def name(self) -> str:
+        return "fixture:must-not-run"
+
+    def create_topics(
+        self, metadata: VideoMetadata, transcript: Transcript, max_topics: int
+    ) -> EditorialResponse:
+        del metadata, transcript, max_topics
+        raise AssertionError("max_topics=0 must not call the editorial provider")
 
 
 def test_pipeline_writes_complete_package(tmp_path: Path) -> None:
@@ -138,3 +184,36 @@ def test_pipeline_writes_complete_package(tmp_path: Path) -> None:
         slide.original_text.startswith("This is verified") for slide in results[0].content.slides
     )
     assert results[0].directory.name == "01-真正值钱的是可追溯"
+
+
+def test_pipeline_writes_one_storyboard_per_distinct_topic(tmp_path: Path) -> None:
+    pipeline = ContentPipeline(
+        youtube=FakeYouTubeGateway(),
+        editorial=MultiEditorialProvider(),
+        renderer=SlideRenderer("ffmpeg"),
+    )
+    results = pipeline.run(
+        "https://www.youtube.com/watch?v=fixture",
+        tmp_path / "multi-output",
+        max_topics=6,
+        work_root=tmp_path / "multi-work",
+    )
+    assert len(results) == 2
+    assert all((result.directory / "storyboard.jpg").exists() for result in results)
+    assert [result.directory.name[:2] for result in results] == ["01", "02"]
+
+
+def test_pipeline_allows_zero_output_without_editorial_call(tmp_path: Path) -> None:
+    pipeline = ContentPipeline(
+        youtube=FakeYouTubeGateway(),
+        editorial=FailingEditorialProvider(),
+        renderer=SlideRenderer("ffmpeg"),
+    )
+    results = pipeline.run(
+        "https://www.youtube.com/watch?v=fixture",
+        tmp_path / "zero-output",
+        max_topics=0,
+        work_root=tmp_path / "zero-work",
+    )
+    assert results == []
+    assert (tmp_path / "zero-output" / "manifest.json").exists()

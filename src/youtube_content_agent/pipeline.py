@@ -7,12 +7,14 @@ from pathlib import Path
 from .grounding import GroundingService
 from .interfaces import EditorialProvider, YouTubeGateway
 from .models import (
+    EditorialResponse,
     PackageMetadata,
     PackageResult,
     RunManifest,
     SourceData,
 )
 from .storage import slugify, write_json, write_package
+from .topic_selection import TopicSelectionPolicy
 from .visual import SlideRenderer
 
 logger = logging.getLogger(__name__)
@@ -27,17 +29,19 @@ class ContentPipeline:
         editorial: EditorialProvider,
         renderer: SlideRenderer,
         grounding: GroundingService | None = None,
+        topic_selection: TopicSelectionPolicy | None = None,
     ) -> None:
         self.youtube = youtube
         self.editorial = editorial
         self.renderer = renderer
         self.grounding = grounding or GroundingService()
+        self.topic_selection = topic_selection or TopicSelectionPolicy()
 
     def run(
         self,
         url: str,
         output_dir: Path,
-        max_topics: int = 3,
+        max_topics: int = 6,
         work_root: Path = Path("work/youtube-content-agent"),
     ) -> list[PackageResult]:
         started_at = datetime.now(UTC)
@@ -52,7 +56,14 @@ class ContentPipeline:
         )
         transcript = self.youtube.fetch_transcript(metadata, work_dir)
         write_json(output_dir / "transcript.json", transcript)
-        proposals = self.editorial.create_topics(metadata, transcript, max_topics)
+        if not 0 <= max_topics <= 6:
+            raise ValueError("max_topics must be between 0 and 6")
+        draft = (
+            self.editorial.create_topics(metadata, transcript, max_topics)
+            if max_topics
+            else EditorialResponse(topics=[])
+        )
+        proposals = self.topic_selection.select(draft, max_topics)
 
         results: list[PackageResult] = []
         for index, proposal in enumerate(proposals.topics, start=1):
@@ -118,6 +129,7 @@ class ContentPipeline:
                 "event": "pipeline_complete",
                 "resource_id": metadata.video_id,
                 "status": "success",
+                "topic_count": len(results),
             },
         )
         return results

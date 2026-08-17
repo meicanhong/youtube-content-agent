@@ -127,11 +127,14 @@ uv run youtube-content-trend \
   --month 2026-08 \
   --top-n 10 \
   --generate-top 3 \
-  --max-topics 1
+  --max-topics 6
 ```
 
 `--generate-top` 会额外获取字幕、调用 Editorial 并下载选题片段；默认值为 `0`，即只输出
-候选榜单，不产生后续长图费用。
+候选榜单，不产生后续长图费用。每个入选视频会寻找最多 6 段彼此独立的高价值内容，
+每段分别生成一张 `storyboard.jpg`；没有合格内容时输出 0 张，不会为了凑数生成弱内容。
+Pipeline 会保留模型排序，同时过滤质量分低于 `0.72`、标题或主题重复，以及来源时间段
+重叠超过 `35%` 的候选内容。
 
 ### 无网络、无付费 API 的 Trend 演示
 
@@ -155,7 +158,7 @@ uv run youtube-content-agent \
   'https://www.youtube.com/watch?v=VIDEO_ID' \
   --output-dir outputs/my-run \
   --work-dir work/youtube-content-agent \
-  --max-topics 3
+  --max-topics 6
 ```
 
 如果 YouTube 对匿名访问触发验证，可在 `.env` 显式设置浏览器名，例如：
@@ -175,7 +178,7 @@ uv run youtube-content-agent \
   'https://www.youtube.com/watch?v=VIDEO_ID' \
   --editorial-fixture fixtures/demo_editorial.json \
   --output-dir outputs/demo \
-  --max-topics 1
+  --max-topics 6
 ```
 
 输出 `metadata.json` 会把 provider 标成 `fixture:...`，避免把 Mock 当成生产模型结果。fixture 的时间范围和 Slide 时间戳仍必须通过真实 Transcript 回源校验。
