@@ -112,6 +112,33 @@ def test_hard_coherence_risk_detects_stacked_contrast_connectors() -> None:
     assert "stacks 但 and 另一方面" in _detect_hard_coherence_risks(risky)[0]
 
 
+def test_hard_coherence_risk_detects_overloaded_visual_line() -> None:
+    response = EditorialResponse.model_validate_json(VALID_RESPONSE)
+    dense = response.model_copy(
+        update={
+            "topics": [
+                response.topics[0].model_copy(
+                    update={
+                        "slides": [
+                            response.topics[0].slides[0].model_copy(
+                                update={
+                                        "zh_text": "这是一句明显超过单行视觉密度限制的中文文案"
+                                        "需要重新拆分成相邻分镜才能完整表达清楚"
+                                }
+                            ),
+                            *response.topics[0].slides[1:],
+                        ]
+                    }
+                )
+            ]
+        }
+    )
+    assert any(
+        "too dense for one visual line" in risk
+        for risk in _detect_hard_coherence_risks(dense)
+    )
+
+
 def test_coherence_audit_can_pass_with_non_blocking_suggestions() -> None:
     audit = StoryCoherenceAudit.model_validate_json(
         INVALID_AUDIT.replace('"coherent": false', '"coherent": true').replace(

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
 from youtube_content_agent.visual import SlideRenderer
@@ -26,3 +28,23 @@ def test_storyboard_caption_removes_terminal_punctuation_only() -> None:
     assert SlideRenderer._strip_terminal_punctuation("保留“句中强调”，继续表达") == (
         "保留“句中强调”，继续表达"
     )
+
+
+def test_storyboard_uses_fixed_three_by_four_strip_layout(tmp_path: Path) -> None:
+    renderer = SlideRenderer("ffmpeg")
+    frame_paths: list[Path] = []
+    for index in range(9):
+        frame_path = tmp_path / f"frame-{index}.jpg"
+        Image.new("RGB", (640, 360), (100 + index * 8, 20, 30)).save(frame_path)
+        frame_paths.append(frame_path)
+    frames = [(path, f"这是第{index + 1}句参考字幕") for index, path in enumerate(frame_paths)]
+    output = tmp_path / "storyboard.jpg"
+
+    renderer._compose_storyboard(frames, output)
+
+    with Image.open(output) as storyboard:
+        assert storyboard.size == (1080, 1440)
+        assert all(storyboard.getpixel((0, y)) != (255, 255, 255) for y in range(1440))
+    expanded, font = renderer._layout_storyboard_frames(frames)
+    assert len(expanded) == 9
+    assert font.size == 46

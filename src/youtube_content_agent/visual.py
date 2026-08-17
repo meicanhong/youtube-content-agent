@@ -17,11 +17,11 @@ class SlideRenderer:
     HEIGHT = 1350
     STORYBOARD_WIDTH = 1080
     STORYBOARD_HEIGHT = 1440
-    STORYBOARD_HERO_HEIGHT = 400
-    STORYBOARD_SEPARATOR = 6
-    STORYBOARD_FONT_SIZE = 40
-    STORYBOARD_TEXT_WIDTH = 980
-    STORYBOARD_MIN_PANEL_HEIGHT = 59
+    STORYBOARD_HERO_HEIGHT = 480
+    STORYBOARD_FONT_SIZE = 46
+    STORYBOARD_MIN_FONT_SIZE = 30
+    STORYBOARD_TEXT_WIDTH = 1000
+    STORYBOARD_PANEL_VERTICAL_PADDING = 18
     STORYBOARD_TERMINAL_PUNCTUATION = "，。；：！？、,.;:!?…—-·“”‘’\"'（）()【】[]《》〈〉"
     STORYBOARD_PUNCTUATION_PAIRS = {
         "”": "“",
@@ -133,37 +133,48 @@ class SlideRenderer:
     def _compose_storyboard(self, frames: list[tuple[Path, str]], output_path: Path) -> None:
         if len(frames) < 2:
             raise ExternalToolError("连续故事长图至少需要 2 个分镜")
-        frames = self._split_storyboard_captions(frames)
+        frames, font = self._layout_storyboard_frames(frames)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        separator_total = self.STORYBOARD_SEPARATOR * (len(frames) - 1)
-        required_height = (
-            self.STORYBOARD_HERO_HEIGHT
-            + separator_total
-            + self.STORYBOARD_MIN_PANEL_HEIGHT * (len(frames) - 1)
-        )
-        canvas_height = max(self.STORYBOARD_HEIGHT, required_height)
-        compact_total = canvas_height - self.STORYBOARD_HERO_HEIGHT - separator_total
+        compact_total = self.STORYBOARD_HEIGHT - self.STORYBOARD_HERO_HEIGHT
         compact_height, remainder = divmod(compact_total, len(frames) - 1)
         heights = [self.STORYBOARD_HERO_HEIGHT] + [compact_height] * (len(frames) - 1)
         for index in range(1, remainder + 1):
             heights[index] += 1
 
-        canvas = Image.new("RGB", (self.STORYBOARD_WIDTH, canvas_height), "white")
+        canvas = Image.new("RGB", (self.STORYBOARD_WIDTH, self.STORYBOARD_HEIGHT), "black")
         y = 0
         for index, ((frame_path, text), panel_height) in enumerate(
             zip(frames, heights, strict=True)
         ):
             with Image.open(frame_path).convert("RGB") as frame:
                 panel = self._cover(frame, self.STORYBOARD_WIDTH, panel_height)
-            panel = self._caption_storyboard_panel(panel, text, hero=index == 0)
+            panel = self._caption_storyboard_panel(panel, text, font, hero=index == 0)
             canvas.paste(panel, (0, y))
             y += panel_height
-            if index < len(frames) - 1:
-                y += self.STORYBOARD_SEPARATOR
         canvas.save(output_path, quality=94, optimize=True)
 
-    def _split_storyboard_captions(self, frames: list[tuple[Path, str]]) -> list[tuple[Path, str]]:
-        font = ImageFont.truetype(str(self.font_path), self.STORYBOARD_FONT_SIZE)
+    def _layout_storyboard_frames(
+        self, frames: list[tuple[Path, str]]
+    ) -> tuple[list[tuple[Path, str]], ImageFont.FreeTypeFont]:
+        for size in range(
+            self.STORYBOARD_FONT_SIZE,
+            self.STORYBOARD_MIN_FONT_SIZE - 1,
+            -2,
+        ):
+            font = ImageFont.truetype(str(self.font_path), size)
+            expanded = self._split_storyboard_captions(frames, font)
+            compact_height = (self.STORYBOARD_HEIGHT - self.STORYBOARD_HERO_HEIGHT) // (
+                len(expanded) - 1
+            )
+            if compact_height >= size + self.STORYBOARD_PANEL_VERTICAL_PADDING:
+                return expanded, font
+        raise ExternalToolError("故事长图字幕过多，固定 3:4 画布无法保持统一可读字号")
+
+    def _split_storyboard_captions(
+        self,
+        frames: list[tuple[Path, str]],
+        font: ImageFont.FreeTypeFont,
+    ) -> list[tuple[Path, str]]:
         expanded: list[tuple[Path, str]] = []
         for frame_path, text in frames:
             for part in self._split_single_line(text, font, self.STORYBOARD_TEXT_WIDTH):
@@ -244,18 +255,22 @@ class SlideRenderer:
         return [*parts[:-2], left, right]
 
     def _caption_storyboard_panel(
-        self, panel: Image.Image, text: str, *, hero: bool
+        self,
+        panel: Image.Image,
+        text: str,
+        font: ImageFont.FreeTypeFont,
+        *,
+        hero: bool,
     ) -> Image.Image:
         overlay = Image.new("RGBA", panel.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         if hero:
-            caption_height = 92
+            caption_height = int(font.size) + 50
             box = (0, panel.height - caption_height, panel.width, panel.height)
-            draw.rectangle(box, fill=(0, 0, 0, 225))
+            draw.rectangle(box, fill=(0, 0, 0, 165))
         else:
             box = (0, 0, panel.width, panel.height)
-            draw.rectangle(box, fill=(0, 0, 0, 205))
-        font = ImageFont.truetype(str(self.font_path), self.STORYBOARD_FONT_SIZE)
+            draw.rectangle(box, fill=(0, 0, 0, 112))
         if draw.textlength(text, font=font) > self.STORYBOARD_TEXT_WIDTH:
             raise ExternalToolError("故事长图字幕未正确拆分为单行")
         self._draw_centered_lines(draw, [text], font, box)

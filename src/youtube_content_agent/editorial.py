@@ -19,6 +19,8 @@ Select independent, publishable ideas from an English interview. Every topic mus
 continuous source segment. Never invent a quote or idea. Slide timestamps must be ascending,
 inside that segment, and correspond to the nearby source wording. Produce natural concise
 Chinese, preserving meaning. Each carousel must tell one continuous story in 6-10 slides.
+Each zh_text must be a concise single-line visual beat, ideally 8-24 Chinese characters. Split a
+long idea across adjacent slides instead of writing a paragraph into one slide.
 The caption may reorganize the source idea but must not introduce factual claims absent from it.
 Return zero topics when the transcript contains no strong standalone idea. When returning multiple
 topics, use substantially different source segments and editorial ideas. Never repackage the same
@@ -369,8 +371,9 @@ def _build_story_coherence_prompt(
         "required antecedent or counterpart is absent.\n"
         "- Restore necessary reasoning bridges using only facts stated in the supplied source "
         "excerpt; never add outside context.\n"
-        "- Each zh_text should express one complete thought in concise natural Chinese, ideally "
-        "12-34 Chinese characters, with no terminal punctuation.\n"
+        "- Each zh_text should express one complete visual beat in concise natural Chinese, "
+        "ideally 8-24 Chinese characters, with no terminal punctuation. Split a longer idea "
+        "across adjacent slides.\n"
         "- Preserve the speaker's distinction between examples, causes, criteria, and "
         "conclusions.\n"
         "- Preserve topic count, source_start, and source_end exactly. You may replace slide "
@@ -401,7 +404,8 @@ def _build_story_coherence_audit_prompt(
         "sequence still fails when it literally translates an English metaphor or phrasal verb "
         "into unnatural Chinese, changes causality, or stacks redundant contrast connectors. A "
         "factually correct sequence can still be incoherent. Give concrete slide-level repair "
-        "instructions. Score "
+        "instructions. Treat zh_text longer than 24 Chinese characters as a visual-density risk "
+        "unless shortening it would remove essential meaning. Score "
         "0.85 or above only when the sequence reads as a self-contained story without the source. "
         "Return only JSON matching the schema.\n\n"
         f"CODE-DETECTED RISKS TO VERIFY:\n{json.dumps(risks, ensure_ascii=False)}\n\n"
@@ -425,6 +429,11 @@ def _detect_hard_coherence_risks(draft: EditorialResponse) -> list[str]:
                 risks.append(
                     f"Topic {topic_index} slide {slide_index} stacks 但 and 另一方面 in the "
                     "same sentence"
+                )
+            if len(text) > 34:
+                risks.append(
+                    f"Topic {topic_index} slide {slide_index} is too dense for one visual line "
+                    f"({len(text)} characters)"
                 )
     return risks
 
