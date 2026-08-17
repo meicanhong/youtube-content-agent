@@ -14,7 +14,8 @@ YouTube Podcast Top 100（可选）
 YouTube URL
   -> yt-dlp 元数据
   -> YouTube 人工/自动英文字幕（带时间戳）
-  -> OpenAI 结构化 Editorial + Caption
+  -> MiMo 结构化 Editorial + Caption
+  -> 独立 LLM 故事连贯性审核与受限重写
   -> Transcript 强制回源与时间覆盖校验
   -> 按选题下载连续视频片段
   -> 每个时间戳附近三帧质量择优
@@ -59,6 +60,11 @@ Editorial 请求会显式设置 `thinking.type=disabled`。这是因为该任务
 通过时间合同后还会执行一次来源限定核查。核查器只能重写中文选题、Slide 和 Caption，
 不能改变 Source Segment、时间戳或英文锚点；任何原文未明确支持的日期、身份、影响范围或
 背景事实都必须删除，来源身份一旦被修改会直接失败。
+
+来源核查后，独立审核器会把整组 `zh_text` 当作读者唯一可见的故事，检查缺失前提、悬空的
+第一/第二、指代不清、案例跳跃、直译和过载句。只有 `coherent=true` 且评分至少 `0.85`
+才通过；否则最多执行两轮整组重写和复审。重写可以在同一个 Source Segment 内重新选择
+更合适的英文锚点，但不能扩大来源区间，新引用仍必须逐字回源并再次经过事实核查。
 
 如需切回 OpenAI，可设置 `EDITORIAL_PROVIDER=openai`，并配置 `OPENAI_API_KEY` 与
 `OPENAI_MODEL`。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
@@ -76,6 +77,31 @@ class TopicProposal(StrictModel):
 
 class EditorialResponse(StrictModel):
     topics: list[TopicProposal] = Field(max_length=6)
+
+
+class StoryCoherenceIssue(StrictModel):
+    slide_index: int = Field(ge=1, le=10)
+    category: Literal[
+        "missing_bridge",
+        "dangling_connector",
+        "ambiguous_reference",
+        "abrupt_transition",
+        "overloaded_slide",
+        "translation_clarity",
+    ]
+    explanation: str = Field(min_length=3, max_length=1000)
+    repair_instruction: str = Field(min_length=3, max_length=1000)
+
+
+class TopicCoherenceAudit(StrictModel):
+    topic_index: int = Field(ge=1, le=6)
+    coherent: bool
+    score: float = Field(ge=0, le=1)
+    issues: list[StoryCoherenceIssue] = Field(max_length=20)
+
+
+class StoryCoherenceAudit(StrictModel):
+    topics: list[TopicCoherenceAudit] = Field(max_length=6)
 
 
 class SourceSegment(StrictModel):

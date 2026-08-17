@@ -8,8 +8,9 @@ from pathlib import Path
 from openai import OpenAI
 from pydantic import ValidationError
 
-from .errors import ConfigurationError, ExternalToolError
-from .models import EditorialResponse, Transcript, VideoMetadata
+from .errors import ConfigurationError, ExternalToolError, GroundingError
+from .grounding import GroundingService
+from .models import EditorialResponse, StoryCoherenceAudit, Transcript, VideoMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,32 @@ class MimoEditorialProvider:
             )
             repaired_content = self._complete(repair_prompt)
             draft = _parse_editorial_json(repaired_content, "MiMo repair")
-        return self._verify_source_bound_content(draft, transcript, schema)
+        if not draft.topics:
+            return draft
+        return self.revise_topics(draft, transcript, metadata.video_id, schema)
+
+    def revise_topics(
+        self,
+        draft: EditorialResponse,
+        transcript: Transcript,
+        video_id: str,
+        schema: str | None = None,
+    ) -> EditorialResponse:
+        """Ground, fact-check, and coherence-edit an existing editorial draft."""
+        if not draft.topics:
+            return draft
+        resolved_schema = schema or json.dumps(
+            EditorialResponse.model_json_schema(), ensure_ascii=False
+        )
+        grounded = self._repair_ungrounded_draft(
+            draft, transcript, resolved_schema, video_id
+        )
+        source_verified = self._verify_source_bound_content(
+            grounded, transcript, resolved_schema
+        )
+        return self._edit_story_coherence(
+            source_verified, transcript, resolved_schema, video_id
+        )
 
     def _complete(self, user_prompt: str) -> str:
         try:
@@ -151,8 +177,86 @@ class MimoEditorialProvider:
     ) -> EditorialResponse:
         prompt = _build_verification_prompt(draft, transcript, schema)
         verified = _parse_editorial_json(self._complete(prompt), "MiMo verification")
-        _assert_source_identity(draft, verified)
+        _assert_source_identity(draft, verified, "MiMo source verification")
         return verified
+
+    def _repair_ungrounded_draft(
+        self,
+        draft: EditorialResponse,
+        transcript: Transcript,
+        schema: str,
+        video_id: str,
+    ) -> EditorialResponse:
+        try:
+            _assert_topics_grounded(draft, transcript)
+            return draft
+        except GroundingError:
+            logger.warning(
+                "MiMo source quotes failed grounding; attempting one bounded repair",
+                extra={
+                    "event": "external_retry",
+                    "operation": "editorial_grounding_repair",
+                    "provider": "mimo",
+                    "resource_id": video_id,
+                },
+            )
+        prompt = _build_grounding_repair_prompt(draft, transcript, schema)
+        repaired = _parse_editorial_json(self._complete(prompt), "MiMo grounding repair")
+        if len(repaired.topics) != len(draft.topics):
+            raise ExternalToolError("MiMo grounding repair 改变了 Topic 数量")
+        _assert_topics_grounded(repaired, transcript)
+        return repaired
+
+    def _edit_story_coherence(
+        self,
+        draft: EditorialResponse,
+        transcript: Transcript,
+        schema: str,
+        video_id: str,
+    ) -> EditorialResponse:
+        current = draft
+        audit = self._audit_story_coherence(current, transcript)
+        for attempt in range(1, 3):
+            code_risks = _detect_hard_coherence_risks(current)
+            if _audit_passed(audit, len(current.topics)) and not code_risks:
+                if current != draft:
+                    logger.info(
+                        "MiMo story coherence edit completed",
+                        extra={
+                            "event": "story_coherence_complete",
+                            "operation": "editorial_story_edit",
+                            "provider": "mimo",
+                            "resource_id": video_id,
+                            "topic_count": len(current.topics),
+                            "retry_count": attempt - 1,
+                        },
+                    )
+                return current
+            prompt = _build_story_coherence_prompt(
+                current, transcript, schema, audit, code_risks
+            )
+            edited = _parse_editorial_json(self._complete(prompt), "MiMo story coherence")
+            _assert_topic_scope_identity(draft, edited, "MiMo story coherence")
+            _assert_topics_grounded(edited, transcript)
+            current = self._verify_source_bound_content(edited, transcript, schema)
+            audit = self._audit_story_coherence(current, transcript)
+        if _audit_passed(audit, len(current.topics)) and not _detect_hard_coherence_risks(current):
+            return current
+        raise ExternalToolError("MiMo story coherence 两轮重写后仍未通过连贯性复审")
+
+    def _audit_story_coherence(
+        self, draft: EditorialResponse, transcript: Transcript
+    ) -> StoryCoherenceAudit:
+        content = self._complete(_build_story_coherence_audit_prompt(draft, transcript))
+        try:
+            audit = StoryCoherenceAudit.model_validate_json(
+                _clean_json_content(content, "MiMo story audit")
+            )
+        except ValidationError as exc:
+            raise ExternalToolError("MiMo story audit JSON 未通过数据模型校验") from exc
+        if len(audit.topics) != len(draft.topics):
+            raise ExternalToolError("MiMo story audit 返回的 Topic 数量不匹配")
+        return audit
 
 
 def _format_transcript(transcript: Transcript) -> str:
@@ -232,17 +336,7 @@ def _build_repair_prompt(content: str, transcript: Transcript, schema: str) -> s
 def _build_verification_prompt(
     draft: EditorialResponse, transcript: Transcript, schema: str
 ) -> str:
-    excerpts: list[str] = []
-    for index, topic in enumerate(draft.topics, start=1):
-        segments = [
-            segment
-            for segment in transcript.segments
-            if segment.end >= topic.source_start and segment.start <= topic.source_end
-        ]
-        excerpt = "\n".join(
-            f"[{segment.start:.2f}-{segment.end:.2f}] {segment.text}" for segment in segments
-        )
-        excerpts.append(f"TOPIC {index} SOURCE:\n{excerpt}")
+    excerpts = _topic_source_excerpts(draft, transcript)
     return (
         "Audit and rewrite the Chinese editorial fields so every factual statement is explicitly "
         "supported by the supplied source excerpts. Remove dates, roles, impact claims, context, "
@@ -252,20 +346,158 @@ def _build_verification_prompt(
         "quality_score. "
         "Return only the corrected JSON.\n\n"
         f"JSON Schema:\n{schema}\n\nDRAFT:\n{draft.model_dump_json(indent=2)}\n\n"
-        f"SOURCE EXCERPTS:\n{'\n\n'.join(excerpts)}"
+        f"SOURCE EXCERPTS:\n{excerpts}"
     )
 
 
-def _assert_source_identity(draft: EditorialResponse, verified: EditorialResponse) -> None:
+def _build_story_coherence_prompt(
+    draft: EditorialResponse,
+    transcript: Transcript,
+    schema: str,
+    audit: StoryCoherenceAudit,
+    code_risks: list[str],
+) -> str:
+    excerpts = _topic_source_excerpts(draft, transcript)
+    return (
+        "Act as a senior Chinese carousel story editor. The reader will see only the zh_text "
+        "values in order, without the source transcript. Fix every supplied audit issue and "
+        "code-detected risk. Rewrite the editable Chinese fields so every topic forms one "
+        "self-contained story: setup, development, decision or contrast, and conclusion.\n\n"
+        "Hard coherence requirements:\n"
+        "- Every zh_text must connect naturally to the previous and next slide.\n"
+        "- Never leave dangling structures such as 第一/第二, 因此, 另一方面, 这, or 它 when the "
+        "required antecedent or counterpart is absent.\n"
+        "- Restore necessary reasoning bridges using only facts stated in the supplied source "
+        "excerpt; never add outside context.\n"
+        "- Each zh_text should express one complete thought in concise natural Chinese, ideally "
+        "12-34 Chinese characters, with no terminal punctuation.\n"
+        "- Preserve the speaker's distinction between examples, causes, criteria, and "
+        "conclusions.\n"
+        "- Preserve topic count, source_start, and source_end exactly. You may replace slide "
+        "timestamps and source_quote values with stronger bridge sentences from the same supplied "
+        "source excerpt, and may return 6-10 slides. Every replacement quote must be verbatim and "
+        "timestamped at its first containing transcript segment.\n"
+        "- If the approved source excerpt cannot support a coherent standalone story, set that "
+        "topic's quality_score below 0.72 instead of inventing a bridge.\n"
+        "Return only the corrected JSON.\n\n"
+        f"AUDIT:\n{audit.model_dump_json(indent=2)}\n\n"
+        f"CODE-DETECTED RISKS:\n{json.dumps(code_risks, ensure_ascii=False)}\n\n"
+        f"JSON Schema:\n{schema}\n\nDRAFT:\n{draft.model_dump_json(indent=2)}\n\n"
+        f"SOURCE EXCERPTS:\n{excerpts}"
+    )
+
+
+def _build_story_coherence_audit_prompt(
+    draft: EditorialResponse, transcript: Transcript
+) -> str:
+    schema = json.dumps(StoryCoherenceAudit.model_json_schema(), ensure_ascii=False)
+    excerpts = _topic_source_excerpts(draft, transcript)
+    risks = _detect_hard_coherence_risks(draft)
+    return (
+        "Act only as an independent Chinese story-continuity reviewer. The reader sees only each "
+        "topic's zh_text values in order. Mark a topic incoherent if it has a missing premise, "
+        "dangling enumeration or connector, ambiguous pronoun, abrupt example switch, omitted "
+        "decision criterion, overloaded slide, or unnatural translation. A factually correct "
+        "sequence still fails when it literally translates an English metaphor or phrasal verb "
+        "into unnatural Chinese, changes causality, or stacks redundant contrast connectors. A "
+        "factually correct sequence can still be incoherent. Give concrete slide-level repair "
+        "instructions. Score "
+        "0.85 or above only when the sequence reads as a self-contained story without the source. "
+        "Return only JSON matching the schema.\n\n"
+        f"CODE-DETECTED RISKS TO VERIFY:\n{json.dumps(risks, ensure_ascii=False)}\n\n"
+        f"JSON Schema:\n{schema}\n\nDRAFT:\n{draft.model_dump_json(indent=2)}\n\n"
+        f"SOURCE EXCERPTS:\n{excerpts}"
+    )
+
+
+def _detect_hard_coherence_risks(draft: EditorialResponse) -> list[str]:
+    risks: list[str] = []
+    for topic_index, topic in enumerate(draft.topics, start=1):
+        texts = [slide.zh_text.strip() for slide in topic.slides]
+        has_first = any(text.startswith(("第一", "首先")) for text in texts)
+        for slide_index, text in enumerate(texts, start=1):
+            if text.startswith("第二") and not has_first:
+                risks.append(
+                    f"Topic {topic_index} slide {slide_index} starts with 第二 but no earlier "
+                    "slide establishes 第一"
+                )
+            if text.startswith("但") and "另一方面" in text:
+                risks.append(
+                    f"Topic {topic_index} slide {slide_index} stacks 但 and 另一方面 in the "
+                    "same sentence"
+                )
+    return risks
+
+
+def _audit_passed(audit: StoryCoherenceAudit, expected_topics: int) -> bool:
+    return len(audit.topics) == expected_topics and all(
+        topic.coherent and topic.score >= 0.85 for topic in audit.topics
+    )
+
+
+def _build_grounding_repair_prompt(
+    draft: EditorialResponse, transcript: Transcript, schema: str
+) -> str:
+    excerpts = _topic_source_excerpts(draft, transcript, padding=12)
+    return (
+        "The draft contains at least one source_quote or timestamp that cannot be grounded in "
+        "its selected source segment. Rebuild every affected topic using only its supplied "
+        "timestamped source excerpt. Preserve the topic count and editorial intent, but you may "
+        "change source_start, source_end, slide timestamps, source_quote, and Chinese fields. "
+        "Every source_quote must be copied verbatim from the excerpt and its timestamp must point "
+        "to the first segment containing that quote. Keep each source segment continuous and "
+        "30-180 seconds long. Return only the corrected JSON.\n\n"
+        f"JSON Schema:\n{schema}\n\nDRAFT:\n{draft.model_dump_json(indent=2)}\n\n"
+        f"ALLOWED SOURCE EXCERPTS:\n{excerpts}"
+    )
+
+
+def _topic_source_excerpts(
+    draft: EditorialResponse, transcript: Transcript, padding: float = 0
+) -> str:
+    excerpts: list[str] = []
+    for index, topic in enumerate(draft.topics, start=1):
+        segments = [
+            segment
+            for segment in transcript.segments
+            if segment.end >= max(0, topic.source_start - padding)
+            and segment.start <= topic.source_end + padding
+        ]
+        excerpt = "\n".join(
+            f"[{segment.start:.2f}-{segment.end:.2f}] {segment.text}" for segment in segments
+        )
+        excerpts.append(f"TOPIC {index} SOURCE:\n{excerpt}")
+    return "\n\n".join(excerpts)
+
+
+def _assert_topics_grounded(draft: EditorialResponse, transcript: Transcript) -> None:
+    grounding = GroundingService()
+    for topic in draft.topics:
+        grounding.ground(topic, transcript)
+
+
+def _assert_source_identity(
+    draft: EditorialResponse, verified: EditorialResponse, stage: str
+) -> None:
     if len(draft.topics) != len(verified.topics):
-        raise ExternalToolError("MiMo verification 改变了 Topic 数量")
+        raise ExternalToolError(f"{stage} 改变了 Topic 数量")
     for index, (before, after) in enumerate(zip(draft.topics, verified.topics, strict=True)):
         before_source = (before.source_start, before.source_end)
         after_source = (after.source_start, after.source_end)
         before_slides = [(slide.timestamp, slide.source_quote) for slide in before.slides]
         after_slides = [(slide.timestamp, slide.source_quote) for slide in after.slides]
         if before_source != after_source or before_slides != after_slides:
-            raise ExternalToolError(f"MiMo verification 改变了 Topic {index + 1} 的来源身份")
+            raise ExternalToolError(f"{stage} 改变了 Topic {index + 1} 的来源身份")
+
+
+def _assert_topic_scope_identity(
+    draft: EditorialResponse, edited: EditorialResponse, stage: str
+) -> None:
+    if len(draft.topics) != len(edited.topics):
+        raise ExternalToolError(f"{stage} 改变了 Topic 数量")
+    for index, (before, after) in enumerate(zip(draft.topics, edited.topics, strict=True)):
+        if (before.source_start, before.source_end) != (after.source_start, after.source_end):
+            raise ExternalToolError(f"{stage} 改变了 Topic {index + 1} 的来源区间")
 
 
 def _safe_timeline_diagnostic(content: str) -> str:

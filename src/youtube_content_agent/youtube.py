@@ -76,13 +76,19 @@ class YtDlpGateway:
         raw = json.loads(result.stdout)
         timestamp = raw.get("timestamp")
         thumbnail = raw.get("thumbnail")
+        duration = raw.get("duration")
+        if not duration:
+            raise ExternalToolError(
+                "YouTube 元数据缺少视频时长；匿名访问可能受限，请配置 "
+                "YT_DLP_COOKIES_FROM_BROWSER=chrome 后重试"
+            )
         return VideoMetadata(
             video_id=raw["id"],
             youtube_url=raw.get("webpage_url") or url,
             title=raw["title"],
             channel=raw.get("channel") or raw.get("uploader") or "Unknown",
             published_at=datetime.fromtimestamp(timestamp, UTC) if timestamp else None,
-            duration=float(raw["duration"]),
+            duration=float(duration),
             view_count=raw.get("view_count"),
             thumbnail_url=thumbnail if thumbnail and thumbnail.startswith("http") else None,
         )

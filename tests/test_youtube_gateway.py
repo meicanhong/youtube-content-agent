@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from youtube_content_agent.config import Settings
+from youtube_content_agent.errors import ExternalToolError
 from youtube_content_agent.models import Transcript, TranscriptSegment, VideoMetadata
 from youtube_content_agent.youtube import YtDlpGateway
 
@@ -80,6 +81,21 @@ def test_fetch_metadata_does_not_require_downloadable_formats(monkeypatch) -> No
 
     assert metadata.video_id == "video-id"
     assert "--ignore-no-formats-error" in captured
+
+
+def test_fetch_metadata_explains_missing_duration(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    payload = {"id": "video-id", "title": "Interview", "channel": "Channel"}
+    gateway = YtDlpGateway(Settings())
+    monkeypatch.setattr(
+        gateway,
+        "_run",
+        lambda command, operation: subprocess.CompletedProcess(
+            command, 0, json.dumps(payload), ""
+        ),
+    )
+
+    with pytest.raises(ExternalToolError, match="YT_DLP_COOKIES_FROM_BROWSER=chrome"):
+        gateway.fetch_metadata("https://www.youtube.com/watch?v=video-id")
 
 
 def test_fetch_transcript_does_not_require_downloadable_formats(
