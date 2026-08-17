@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 SOURCE_QUOTE_MAX_LENGTH = 2000
+TIMELINE_TOLERANCE_SECONDS = 0.01
 
 
 class StrictModel(BaseModel):
@@ -72,7 +73,11 @@ class TopicProposal(StrictModel):
         timestamps = [slide.timestamp for slide in self.slides]
         if timestamps != sorted(timestamps):
             raise ValueError("slide timestamps must be ascending")
-        if any(not self.source_start <= value <= self.source_end for value in timestamps):
+        if any(
+            value < self.source_start - TIMELINE_TOLERANCE_SECONDS
+            or value > self.source_end + TIMELINE_TOLERANCE_SECONDS
+            for value in timestamps
+        ):
             raise ValueError("every slide timestamp must be inside the source segment")
         return self
 

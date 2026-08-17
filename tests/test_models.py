@@ -43,6 +43,15 @@ def test_topic_rejects_timestamp_outside_source() -> None:
         TopicProposal.model_validate(topic)
 
 
+def test_topic_tolerates_centisecond_boundary_noise() -> None:
+    topic = make_topic().model_dump()
+    topic["slides"][0]["timestamp"] = topic["source_start"] - 0.001
+
+    result = TopicProposal.model_validate(topic)
+
+    assert result.slides[0].timestamp == topic["source_start"] - 0.001
+
+
 def test_slide_source_quote_allows_long_grounded_excerpt() -> None:
     quote = "verified source " * 40
 

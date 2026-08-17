@@ -226,9 +226,20 @@ class MimoEditorialProvider:
             audit = self._audit_story_coherence(current, transcript)
         if _audit_passed(audit, len(current.topics)) and not _detect_hard_coherence_risks(current):
             return current
-        raise ExternalToolError(
-            f"{self.display_name} story coherence 两轮重写后仍未通过连贯性复审"
+        filtered = _filter_coherent_topics(current, audit)
+        logger.warning(
+            f"{self.display_name} dropped topics that failed final coherence review",
+            extra={
+                "event": "story_coherence_topics_dropped",
+                "operation": "editorial_story_filter",
+                "provider": self.provider_id,
+                "resource_id": video_id,
+                "topic_count": len(current.topics),
+                "kept_topic_count": len(filtered.topics),
+                "dropped_topic_count": len(current.topics) - len(filtered.topics),
+            },
         )
+        return filtered
 
     def _audit_story_coherence(
         self, draft: EditorialResponse, transcript: Transcript
@@ -245,6 +256,12 @@ class MimoEditorialProvider:
         if len(audit.topics) != len(draft.topics):
             raise ExternalToolError(
                 f"{self.display_name} story audit 返回的 Topic 数量不匹配"
+            )
+        if [topic.topic_index for topic in audit.topics] != list(
+            range(1, len(draft.topics) + 1)
+        ):
+            raise ExternalToolError(
+                f"{self.display_name} story audit 返回的 Topic 顺序不匹配"
             )
         return audit
 
@@ -417,8 +434,13 @@ def _build_story_coherence_audit_prompt(
 
 
 def _detect_hard_coherence_risks(draft: EditorialResponse) -> list[str]:
-    risks: list[str] = []
+    return [risk for topic_risks in _hard_risks_by_topic(draft) for risk in topic_risks]
+
+
+def _hard_risks_by_topic(draft: EditorialResponse) -> list[list[str]]:
+    risks_by_topic: list[list[str]] = []
     for topic_index, topic in enumerate(draft.topics, start=1):
+        risks: list[str] = []
         texts = [slide.zh_text.strip() for slide in topic.slides]
         has_first = any(text.startswith(("第一", "首先")) for text in texts)
         for slide_index, text in enumerate(texts, start=1):
@@ -437,13 +459,32 @@ def _detect_hard_coherence_risks(draft: EditorialResponse) -> list[str]:
                     f"Topic {topic_index} slide {slide_index} is too dense for one visual line "
                     f"({len(text)} characters)"
                 )
-    return risks
+        risks_by_topic.append(risks)
+    return risks_by_topic
 
 
 def _audit_passed(audit: StoryCoherenceAudit, expected_topics: int) -> bool:
     return len(audit.topics) == expected_topics and all(
         topic.coherent and topic.score >= 0.85 for topic in audit.topics
     )
+
+
+def _filter_coherent_topics(
+    draft: EditorialResponse,
+    audit: StoryCoherenceAudit,
+) -> EditorialResponse:
+    risks_by_topic = _hard_risks_by_topic(draft)
+    topics = [
+        topic
+        for topic, topic_audit, risks in zip(
+            draft.topics,
+            audit.topics,
+            risks_by_topic,
+            strict=True,
+        )
+        if topic_audit.coherent and topic_audit.score >= 0.85 and not risks
+    ]
+    return EditorialResponse(topics=topics)
 
 
 def _build_grounding_repair_prompt(

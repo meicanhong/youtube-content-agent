@@ -11,6 +11,7 @@ from youtube_content_agent.editorial import (
     OpenAIEditorialProvider,
     _audit_passed,
     _detect_hard_coherence_risks,
+    _filter_coherent_topics,
     _parse_editorial_json,
     _safe_timeline_diagnostic,
     _topic_count_instruction,
@@ -147,6 +148,34 @@ def test_coherence_audit_can_pass_with_non_blocking_suggestions() -> None:
         )
     )
     assert _audit_passed(audit, 1) is True
+
+
+def test_final_coherence_filter_keeps_only_passing_topics() -> None:
+    first = EditorialResponse.model_validate_json(VALID_RESPONSE).topics[0]
+    second = first.model_copy(
+        update={
+            "topic": "第二个独立主题",
+            "source_start": 150,
+            "source_end": 190,
+            "slides": [
+                slide.model_copy(update={"timestamp": 152 + index * 6})
+                for index, slide in enumerate(first.slides)
+            ],
+        }
+    )
+    draft = EditorialResponse(topics=[first, second])
+    audit = StoryCoherenceAudit.model_validate(
+        {
+            "topics": [
+                {"topic_index": 1, "coherent": True, "score": 0.9, "issues": []},
+                {"topic_index": 2, "coherent": False, "score": 0.7, "issues": []},
+            ]
+        }
+    )
+
+    filtered = _filter_coherent_topics(draft, audit)
+
+    assert [topic.topic for topic in filtered.topics] == [first.topic]
 
 
 def test_timeline_diagnostic_only_reports_numeric_ranges() -> None:
