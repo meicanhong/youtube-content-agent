@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
+SOURCE_QUOTE_MAX_LENGTH = 2000
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -43,7 +45,7 @@ class Transcript(StrictModel):
 
 class SlideProposal(StrictModel):
     timestamp: float = Field(ge=0)
-    source_quote: str = Field(min_length=3, max_length=300)
+    source_quote: str = Field(min_length=3, max_length=SOURCE_QUOTE_MAX_LENGTH)
     zh_text: str = Field(min_length=2, max_length=80)
 
 

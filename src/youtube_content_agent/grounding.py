@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 
 from .errors import GroundingError
@@ -12,9 +13,13 @@ from .models import (
     TranscriptSegment,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class GroundingService:
     """Derive every source quote from transcript data instead of trusting generated text."""
+
+    BOUNDARY_TOLERANCE_SECONDS = 0.01
 
     def ground(
         self, proposal: TopicProposal, transcript: Transcript
@@ -22,7 +27,8 @@ class GroundingService:
         source_segments = [
             segment
             for segment in transcript.segments
-            if segment.end >= proposal.source_start and segment.start <= proposal.source_end
+            if segment.end + self.BOUNDARY_TOLERANCE_SECONDS >= proposal.source_start
+            and segment.start - self.BOUNDARY_TOLERANCE_SECONDS <= proposal.source_end
         ]
         if not source_segments:
             raise GroundingError(
@@ -71,7 +77,7 @@ class GroundingService:
         normalized_quote = cls._normalize(quote)
         matches: list[tuple[float, float, str]] = []
         for start_index, segment in enumerate(segments):
-            for end_index in range(start_index, min(start_index + 24, len(segments))):
+            for end_index in range(start_index, len(segments)):
                 original_text = " ".join(
                     item.text for item in segments[start_index : end_index + 1]
                 )
@@ -80,13 +86,45 @@ class GroundingService:
                     matches.append((distance, segment.start, original_text))
                     break
         if not matches:
-            raise GroundingError(f"Slide source_quote 无法在 Source Segment 中逐字找到：{quote!r}")
+            return cls._resolve_timestamp_fallback(quote, proposed_timestamp, segments)
         distance, timestamp, original_text = min(matches, key=lambda item: (item[0], len(item[2])))
         if distance > 12:
             raise GroundingError(
                 f"Slide source_quote 与建议时间戳相差 {distance:.2f} 秒，超过 12 秒限制"
             )
         return timestamp, original_text
+
+    @classmethod
+    def _resolve_timestamp_fallback(
+        cls,
+        quote: str,
+        proposed_timestamp: float,
+        segments: list[TranscriptSegment],
+    ) -> tuple[float, str]:
+        if not segments:
+            raise GroundingError(f"Slide source_quote 无法在 Source Segment 中找到：{quote!r}")
+        nearest_index, nearest = min(
+            enumerate(segments),
+            key=lambda item: abs(item[1].start - proposed_timestamp),
+        )
+        distance = abs(nearest.start - proposed_timestamp)
+        if distance > 12:
+            raise GroundingError(
+                f"Slide source_quote 无法逐字匹配，且建议时间戳距离字幕 {distance:.2f} 秒"
+            )
+        window_start = max(0, nearest_index - 1)
+        window_end = min(len(segments), nearest_index + 3)
+        original_text = " ".join(item.text for item in segments[window_start:window_end])
+        logger.warning(
+            "source quote exact match failed; using transcript timestamp fallback",
+            extra={
+                "event": "grounding_timestamp_fallback",
+                "operation": "source_quote_resolution",
+                "proposed_timestamp": proposed_timestamp,
+                "resolved_timestamp": nearest.start,
+            },
+        )
+        return nearest.start, original_text
 
     @staticmethod
     def _normalize(value: str) -> str:

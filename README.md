@@ -226,8 +226,11 @@ outputs/my-run/
 - Slide 时间戳必须递增且位于 Source Segment 内。
 - 每张 Slide 必须携带一段逐字复制的英文 `source_quote`；系统在 Transcript 中找到该
   锚点后，将时间戳纠正到真实字幕段起点，并只保存 Transcript 派生的 `original_text`。
+  如果自动字幕存在错词、浮点时间边界或模型纠正拼写，导致引用无法逐字匹配，系统会在
+  建议时间戳与真实字幕相差不超过 12 秒时改用附近真实字幕，并记录结构化 fallback 警告；
+  不会把模型填写但未回源的英文保存为最终证据。
 - Source Segment 必须被 Transcript 实际覆盖。
-- 每张 Slide 的英文原文由时间戳反查，时间差超过 3 秒直接失败。
+- 每张 Slide 的英文原文由时间戳反查；最近真实字幕与建议时间戳相差超过 12 秒时直接失败。
 - 中文允许自然压缩，但 Prompt 明确禁止增加原文没有的事实。
 
 ## Screenshot 策略

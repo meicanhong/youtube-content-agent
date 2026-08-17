@@ -272,9 +272,9 @@ def test_mimo_rejects_coherence_edit_that_changes_source_scope(
         provider.create_topics(_metadata(), _transcript(), 1)
 
 
-def test_mimo_repairs_ungrounded_source_quote_before_reviews(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_mimo_uses_timestamp_fallback_before_reviews(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     invalid_quote = VALID_RESPONSE.replace('"Verified source"', '"Invented quote"', 1)
-    responses = iter((invalid_quote, VALID_RESPONSE, VALID_RESPONSE, VALID_AUDIT))
+    responses = iter((invalid_quote, invalid_quote, VALID_AUDIT))
     calls: list[dict[str, object]] = []
 
     class FakeCompletions:
@@ -290,11 +290,11 @@ def test_mimo_repairs_ungrounded_source_quote_before_reviews(monkeypatch) -> Non
         "secret-not-logged", "mimo-v2.5", "https://api.xiaomimimo.com/v1"
     )
     result = provider.create_topics(_metadata(), _transcript(), 1)
-    assert result.topics[0].slides[0].source_quote == "Verified source"
-    assert len(calls) == 4
-    repair_messages = calls[1]["messages"]
-    assert isinstance(repair_messages, list)
-    assert "cannot be grounded" in repair_messages[1]["content"]
+    assert result.topics[0].slides[0].source_quote == "Invented quote"
+    assert len(calls) == 3
+    verification_messages = calls[1]["messages"]
+    assert isinstance(verification_messages, list)
+    assert "Audit and rewrite the Chinese editorial fields" in verification_messages[1]["content"]
 
 
 def test_mimo_rewrites_failed_audit_and_reviews_again(monkeypatch) -> None:  # type: ignore[no-untyped-def]

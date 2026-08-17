@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from youtube_content_agent.models import CaptionDraft, SlideProposal, TopicProposal
+from youtube_content_agent.models import (
+    SOURCE_QUOTE_MAX_LENGTH,
+    CaptionDraft,
+    SlideProposal,
+    TopicProposal,
+)
 
 
 def make_topic() -> TopicProposal:
@@ -36,3 +41,12 @@ def test_topic_rejects_timestamp_outside_source() -> None:
     topic["slides"][0]["timestamp"] = 2
     with pytest.raises(ValidationError, match="inside"):
         TopicProposal.model_validate(topic)
+
+
+def test_slide_source_quote_allows_long_grounded_excerpt() -> None:
+    quote = "verified source " * 40
+
+    slide = SlideProposal(timestamp=10, source_quote=quote, zh_text="一条中文内容")
+
+    assert len(slide.source_quote) > 300
+    assert len(slide.source_quote) <= SOURCE_QUOTE_MAX_LENGTH
